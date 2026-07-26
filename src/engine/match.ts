@@ -268,6 +268,8 @@ function weatherModifier(weather: Weather | undefined): { quality: number; error
 // The simulation
 // ---------------------------------------------------------------------------------------------
 
+export type TeamTalk = 'calm' | 'motivate' | 'demand' | 'none';
+
 export interface MatchOptions {
   /** Allow extra time and penalties when the tie needs a winner. */
   needsWinner?: boolean;
@@ -275,6 +277,8 @@ export interface MatchOptions {
   aggregate?: { home: number; away: number };
   /** Consecutive league defeats for the human, feeding the Easy-mode guardrail. */
   humanDefeatStreak?: number;
+  /** The human manager's pre-match team talk. Only applies to their own side. */
+  teamTalk?: TeamTalk;
 }
 
 export class MatchSim {
@@ -361,6 +365,24 @@ export class MatchSim {
 
     const guardrail = isHuman ? guardrailBoost(settings, options.humanDefeatStreak ?? 0) : 1;
 
+    // The team talk. Motivating sharpens the attack, calming steadies the defence; making
+    // demands is a gamble that pays off only if the dressing room can handle the pressure.
+    let talkAttack = 1;
+    let talkDefence = 1;
+    if (isHuman && options.teamTalk && options.teamTalk !== 'none' && onPitch.length > 0) {
+      if (options.teamTalk === 'motivate') {
+        talkAttack = 1.03;
+      } else if (options.teamTalk === 'calm') {
+        talkDefence = 1.03;
+      } else {
+        const avgPressure = onPitch.reduce((sum, mp) => sum + mp.player.attributes.pressure, 0) /
+          onPitch.length;
+        const responds = this.rng.chance(clamp(avgPressure / 20, 0.35, 0.8));
+        talkAttack = responds ? 1.04 : 0.97;
+        talkDefence = responds ? 1.04 : 0.97;
+      }
+    }
+
     return {
       clubId,
       name: club.name,
@@ -375,8 +397,8 @@ export class MatchSim {
       isHuman,
       strength: { defence: 0, midfield: 0, buildUp: 0, creation: 0, finishing: 0, aerial: 0, keeper: 0, discipline: 0 },
       bias: {
-        attack: homeAttack * (isHuman ? settings.attackBonus * guardrail : 1),
-        defence: homeDefence * (isHuman ? settings.defenceBonus : 1),
+        attack: homeAttack * talkAttack * (isHuman ? settings.attackBonus * guardrail : 1),
+        defence: homeDefence * talkDefence * (isHuman ? settings.defenceBonus : 1),
         conversion: isHuman ? settings.conversionBonus : 0,
       },
     };

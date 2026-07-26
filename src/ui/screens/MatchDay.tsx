@@ -8,16 +8,23 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useGame } from '../GameContext';
-import { getClub } from '../../engine/gamestate';
+import { getClub, clubFixtures, squadOf } from '../../engine/gamestate';
 import { Rng, deriveSeed } from '../../engine/rng';
-import { MatchSim, MatchTeam } from '../../engine/match';
+import { MatchSim, MatchTeam, TeamTalk } from '../../engine/match';
 import { applyMatchResult, humanDefeatStreak } from '../../engine/postmatch';
 import { aggregateFor, playoffNeedsWinner } from '../../engine/cups';
 import { POSITION_COORDS, Mentality, Pressing } from '../../engine/types';
 import { repairSelection, validateSelection } from '../../engine/selection';
+import { conditionCurve, totalStats, averageForm } from '../../engine/players';
+import { knowledgeOf } from '../../engine/scouting';
+import { formationByName } from '../../engine/formations';
+import { positionOf, tableFor } from '../../engine/table';
+import { ordinal } from '../../engine/board';
+import { pickTeamAutomatically } from '../../game/actions';
 import { nextHumanFixture } from '../../game/loop';
 import { formatDate } from '../../engine/date';
-import { Kit, Panel, Field } from '../components';
+import { ResultDetails } from '../ResultDetails';
+import { Kit, Panel, Field, FormGuide, OptionGroup, stars } from '../components';
 
 type Speed = 'paused' | 'slow' | 'normal' | 'fast' | 'instant';
 
@@ -28,7 +35,7 @@ const SPEED_MS: Record<Exclude<Speed, 'paused' | 'instant'>, number> = {
 };
 
 export function MatchDayScreen({ onFinish }: { onFinish: () => void }) {
-  const { state, refresh, settings, showToast } = useGame();
+  const { state, refresh, settings, showToast, setScreen, inspectPlayer } = useGame();
   const club = getClub(state, state.manager.clubId);
   const fixture = useMemo(
     () => state.fixtures.find((f) => f.date <= state.date && !f.played &&
@@ -41,6 +48,8 @@ export function MatchDayScreen({ onFinish }: { onFinish: () => void }) {
   const [tick, setTick] = useState(0);
   const [applied, setApplied] = useState(false);
   const [kickedOff, setKickedOff] = useState(false);
+  const [teamTalk, setTeamTalk] = useState<TeamTalk>('none');
+  const [preMatchPosition, setPreMatchPosition] = useState(0);
   const timerRef = useRef<number | null>(null);
 
   const problems = fixture ? validateSelection(state, club.id) : [];
@@ -54,17 +63,19 @@ export function MatchDayScreen({ onFinish }: { onFinish: () => void }) {
       showToast('Your line-up was not legal, so your assistant fixed it.', true);
       refresh();
     }
+    setPreMatchPosition(positionOf(state, club.leagueId, club.id));
     const rng = new Rng(deriveSeed(state.seed, `match:${fixture.id}`));
     const created = new MatchSim(state, fixture, rng, {
       needsWinner: playoffNeedsWinner(fixture) ||
         (state.competitions[fixture.competitionId]?.kind === 'cup' && fixture.roundName === 'Final'),
       aggregate: aggregateFor(state, fixture),
       humanDefeatStreak: humanDefeatStreak(state),
+      teamTalk,
     });
     setSim(created);
     setKickedOff(true);
     setSpeed(settings.matchSpeed === 'slow' ? 'slow' : settings.matchSpeed === 'fast' ? 'fast' : 'normal');
-  }, [fixture, hasErrors, state, club.id, refresh, showToast, settings.matchSpeed]);
+  }, [fixture, hasErrors, state, club.id, club.leagueId, refresh, showToast, settings.matchSpeed, teamTalk]);
 
   // The clock.
   useEffect(() => {
@@ -108,63 +119,166 @@ export function MatchDayScreen({ onFinish }: { onFinish: () => void }) {
   const weAreHome = fixture.homeClubId === club.id;
   const ourTeam: MatchTeam | null = sim ? (weAreHome ? sim.home : sim.away) : null;
 
-  // Pre-match team talk screen.
+  // The build-up: opposition report, team news and the team talk.
   if (!kickedOff) {
+    const opponentId = weAreHome ? fixture.awayClubId : fixture.homeClubId;
+    const opponent = state.clubs[opponentId];
     return (
-      <Panel
-        title={`${home?.name} v ${away?.name}`}
-        actions={
-          <button type="button" className="btn btn--primary" onClick={kickOff}>
-            Kick off ▸
-          </button>
-        }
-      >
-        <div className="col">
-          <p className="muted" style={{ margin: 0 }}>
-            {competition?.name}{fixture.roundName ? ` · ${fixture.roundName}` : ''} ·{' '}
-            {formatDate(fixture.date)} · {fixture.neutralVenue ?? home?.stadiumName} ·{' '}
-            {fixture.weather}
-          </p>
-          {aggregateFor(state, fixture) && (
-            <p className="warn" style={{ margin: 0 }}>
-              Second leg. First-leg aggregate carried forward.
+      <>
+        <Panel
+          title={`${home?.name} v ${away?.name}`}
+          actions={
+            <button type="button" className="btn btn--primary" onClick={kickOff}>
+              Kick off ▸
+            </button>
+          }
+        >
+          <div className="col">
+            <p className="muted" style={{ margin: 0 }}>
+              {competition?.name}{fixture.roundName ? ` · ${fixture.roundName}` : ''} ·{' '}
+              {formatDate(fixture.date)} · {fixture.neutralVenue ?? home?.stadiumName} ·{' '}
+              {fixture.weather}
+              {club.rivalIds.includes(opponentId) && <span className="pill pill--warn" style={{ marginLeft: 8 }}>Local derby</span>}
             </p>
-          )}
-          {problems.length > 0 && (
-            <div className="panel" style={{ margin: 0 }}>
-              <div className="panel__head">Before you kick off</div>
-              <div className="panel__body">
-                <ul style={{ margin: 0, paddingLeft: 18 }}>
-                  {problems.map((problem, index) => (
-                    <li key={index} className={problem.severity === 'error' ? 'neg' : 'warn'}>
-                      {problem.message}
-                    </li>
-                  ))}
-                </ul>
-                {hasErrors && (
-                  <p className="faint small" style={{ marginBottom: 0 }}>
-                    Kick off anyway and your assistant will pick the strongest legal side. You can
-                    also go to Tactics and fix it yourself.
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-          <div className="row">
-            <span className="muted">Line-up:</span>
-            <span>
-              {club.tactics.slots
-                .map((slot) => (slot.playerId ? state.players[slot.playerId]?.shortName : '—'))
-                .filter(Boolean)
-                .join(', ')}
-            </span>
+            {aggregateFor(state, fixture) && (
+              <p className="warn" style={{ margin: 0 }}>
+                Second leg. First-leg aggregate carried forward.
+              </p>
+            )}
+          </div>
+        </Panel>
+
+        <div className="grid grid--2">
+          {opponent && <OppositionReport opponentId={opponentId} />}
+
+          <div>
+            <Panel
+              title="Your team"
+              actions={
+                <span className="row">
+                  <button type="button" className="btn btn--small" onClick={() => setScreen('tactics')}>
+                    Go to Tactics
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--small"
+                    onClick={() => { pickTeamAutomatically(state); refresh(); showToast('Strongest available side selected.'); }}
+                  >
+                    Pick strongest side
+                  </button>
+                </span>
+              }
+              flush
+            >
+              {problems.length > 0 && (
+                <div style={{ padding: '8px 11px', borderBottom: '1px solid var(--border)' }}>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {problems.map((problem, index) => (
+                      <li key={index} className={problem.severity === 'error' ? 'neg' : 'warn'}>
+                        {problem.message}
+                      </li>
+                    ))}
+                  </ul>
+                  {hasErrors && (
+                    <p className="faint small" style={{ margin: '6px 0 0' }}>
+                      Kick off anyway and your assistant will pick the strongest legal side.
+                    </p>
+                  )}
+                </div>
+              )}
+              <table className="data">
+                <tbody>
+                  {club.tactics.slots.map((slot, index) => {
+                    const player = slot.playerId ? state.players[slot.playerId] : null;
+                    if (!player) {
+                      return (
+                        <tr key={index}>
+                          <td className="pos faint">{slot.position}</td>
+                          <td className="neg">— empty —</td><td /><td />
+                        </tr>
+                      );
+                    }
+                    const ready = Math.round(conditionCurve(player.condition) *
+                      (0.82 + 0.18 * (player.matchSharpness / 100)) *
+                      (0.9 + 0.2 * (player.morale / 100)) * 100);
+                    const form = averageForm(player);
+                    return (
+                      <tr key={index} className="clickable" onClick={() => inspectPlayer(player.id)}>
+                        <td className="pos strong">{slot.position}</td>
+                        <td>{player.shortName}<span className="faint small"> · {slot.role}</span></td>
+                        <td className="num muted small">{form ? form.toFixed(1) : '—'}</td>
+                        <td className={`num ${ready >= 90 ? 'pos' : ready < 75 ? 'warn' : ''}`}>{ready}%</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </Panel>
+
+            <Panel title="Team talk">
+              <OptionGroup
+                options={[
+                  { value: 'none', label: 'Say nothing', hint: 'Let the football do the talking.' },
+                  { value: 'calm', label: 'Calm them', hint: 'Steadies the defence. Good away from home.' },
+                  { value: 'motivate', label: 'Fire them up', hint: 'Sharpens the attack.' },
+                  { value: 'demand', label: 'Demand a result', hint: 'A gamble — big characters respond, nervous squads freeze.' },
+                ]}
+                value={teamTalk}
+                onChange={setTeamTalk}
+              />
+            </Panel>
           </div>
         </div>
-      </Panel>
+      </>
     );
   }
 
   if (!sim) return null;
+
+  // Full time: the review. The result has been applied, the table has moved — show it.
+  if (sim.isComplete && applied) {
+    const us = weAreHome ? sim.homeGoals : sim.awayGoals;
+    const them = weAreHome ? sim.awayGoals : sim.homeGoals;
+    const verdict = us > them ? 'A win' : us === them ? 'A draw' : 'A defeat';
+    const newPosition = positionOf(state, club.leagueId, club.id);
+    const isLeague = state.competitions[fixture.competitionId]?.kind === 'league';
+    const upcoming = nextHumanFixture(state);
+    const upcomingOpponent = upcoming
+      ? state.clubs[upcoming.homeClubId === club.id ? upcoming.awayClubId : upcoming.homeClubId]
+      : null;
+    return (
+      <>
+        <Panel flush>
+          <div className="scoreboard">
+            <span className="scoreboard__team"><Kit club={home} /> {home?.shortName}</span>
+            <span className="scoreboard__score">{sim.homeGoals} - {sim.awayGoals}</span>
+            <span className="scoreboard__team">{away?.shortName} <Kit club={away} /></span>
+            <span className="scoreboard__clock">FT</span>
+          </div>
+          <div className="row row--wrap" style={{ padding: '8px 11px', gap: 12, alignItems: 'center' }}>
+            <span className={`strong ${us > them ? 'pos' : us < them ? 'neg' : ''}`}>{verdict}.</span>
+            {isLeague && preMatchPosition > 0 && newPosition > 0 && (
+              <span className="muted">
+                {newPosition === preMatchPosition
+                  ? `Still ${ordinal(newPosition)}.`
+                  : <>You move {ordinal(preMatchPosition)} → <b className={newPosition < preMatchPosition ? 'pos' : 'neg'}>{ordinal(newPosition)}</b>.</>}
+              </span>
+            )}
+            {upcoming && upcomingOpponent && (
+              <span className="muted small">
+                Next: {upcomingOpponent.shortName} ({upcoming.homeClubId === club.id ? 'H' : 'A'}), {formatDate(upcoming.date)}
+              </span>
+            )}
+            <span className="spacer" style={{ flex: 1 }} />
+            <button type="button" className="btn btn--primary" onClick={onFinish}>
+              Continue ▸
+            </button>
+          </div>
+        </Panel>
+        <ResultDetails fixture={fixture} />
+      </>
+    );
+  }
 
   const commentary = [...sim.commentary].reverse();
 
@@ -320,7 +434,7 @@ export function MatchDayScreen({ onFinish }: { onFinish: () => void }) {
                             {mp.red && <span className="neg"> ▪</span>}
                             {!mp.onPitch && <span className="faint"> (off)</span>}
                           </td>
-                          <td className="num mono">{(6.5 + (mp.rating - 6.5)).toFixed(1)}</td>
+                          <td className="num mono">{mp.rating.toFixed(1)}</td>
                         </tr>
                       ))}
                   </>
@@ -331,6 +445,95 @@ export function MatchDayScreen({ onFinish }: { onFinish: () => void }) {
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * What you'd want from an assistant's dossier: where they are, how they're playing, who hurts
+ * you, and how they'll probably line up — all filtered through what scouting actually knows.
+ */
+function OppositionReport({ opponentId }: { opponentId: string }) {
+  const { state, inspectPlayer } = useGame();
+  const opponent = state.clubs[opponentId];
+  if (!opponent) return null;
+
+  const theirLeague = state.competitions[opponent.leagueId];
+  const table = theirLeague ? tableFor(state, theirLeague.id) : [];
+  const row = table.find((r) => r.clubId === opponentId);
+  const theirPosition = table.findIndex((r) => r.clubId === opponentId) + 1;
+
+  const recent = clubFixtures(state, opponentId).filter((f) => f.played && f.result).slice(-3);
+  const squad = squadOf(state, opponentId);
+  const topScorer = squad
+    .map((p) => ({ p, goals: totalStats(p).goals }))
+    .sort((a, b) => b.goals - a.goals)[0];
+
+  const formation = formationByName(opponent.tactics.formationName);
+  const probableXi = opponent.tactics.slots.map((slot, index) => ({
+    position: formation.slots[index] ?? slot.position,
+    player: slot.playerId ? state.players[slot.playerId] : null,
+  }));
+
+  return (
+    <Panel title={`Opposition report — ${opponent.name}`} flush>
+      <div className="panel__body col">
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="muted">League</span>
+          <span>
+            {theirPosition > 0 ? `${ordinal(theirPosition)} in the ${theirLeague?.shortName}` : theirLeague?.name}
+          </span>
+        </div>
+        {row && (
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="muted">Form</span>
+            <FormGuide form={row.form} />
+          </div>
+        )}
+        {recent.length > 0 && (
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="muted">Last results</span>
+            <span className="mono small">
+              {recent.map((f) => {
+                const theirHome = f.homeClubId === opponentId;
+                const gf = theirHome ? f.result!.homeGoals : f.result!.awayGoals;
+                const ga = theirHome ? f.result!.awayGoals : f.result!.homeGoals;
+                return `${gf > ga ? 'W' : gf === ga ? 'D' : 'L'} ${gf}-${ga}`;
+              }).join(' · ')}
+            </span>
+          </div>
+        )}
+        {topScorer && topScorer.goals > 0 && (
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="muted">Top scorer</span>
+            <span className="clickable" onClick={() => inspectPlayer(topScorer.p.id)}>
+              {topScorer.p.shortName} ({topScorer.goals})
+            </span>
+          </div>
+        )}
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="muted">Likely shape</span>
+          <span className="strong">{opponent.tactics.formationName}</span>
+        </div>
+      </div>
+      <div className="panel__head">Probable XI</div>
+      <table className="data">
+        <tbody>
+          {probableXi.map(({ position, player }, index) => {
+            if (!player) return null;
+            const knowledge = knowledgeOf(state, player);
+            return (
+              <tr key={index} className="clickable" onClick={() => inspectPlayer(player.id)}>
+                <td className="pos strong">{position}</td>
+                <td>{player.shortName}</td>
+                <td className="num gold small" title={knowledge.stars === null ? 'Unscouted — send a scout to learn more' : 'From your scouts'}>
+                  {knowledge.stars !== null ? stars(knowledge.stars) : <span className="faint">not scouted</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Panel>
   );
 }
 

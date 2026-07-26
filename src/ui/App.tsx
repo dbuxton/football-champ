@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { backgroundAutosave, Screen, useGame } from './GameContext';
 import { formatDate } from '../engine/date';
-import { getClub, unreadNews } from '../engine/gamestate';
+import { getClub, squadOf, unreadNews } from '../engine/gamestate';
+import { totalStats } from '../engine/players';
 import {
   advance, completeMatchDay, continueLabel, nextFixtureHint, rolloverSeason,
 } from '../game/loop';
@@ -337,6 +338,19 @@ function SeasonSummary() {
   const position = table.findIndex((r) => r.clubId === club.id) + 1;
   const row = table[position - 1];
 
+  // Our own season awards, derived from the squad's numbers.
+  const squad = squadOf(state, club.id);
+  const withApps = squad
+    .map((p) => {
+      const s = totalStats(p);
+      const apps = s.appearances + s.substituteAppearances;
+      return { p, s, apps, avg: apps ? s.ratingSum / apps : 0 };
+    })
+    .filter((e) => e.apps > 0);
+  const topScorer = [...withApps].sort((a, b) => b.s.goals - a.s.goals)[0];
+  const bestRated = [...withApps].filter((e) => e.apps >= 10).sort((a, b) => b.avg - a.avg)[0];
+  const motmLeader = [...withApps].sort((a, b) => b.s.motm - a.s.motm)[0];
+
   return (
     <div className="col">
       <p className="big" style={{ margin: 0 }}>
@@ -347,6 +361,36 @@ function SeasonSummary() {
           Played {row.played}, won {row.won}, drawn {row.drawn}, lost {row.lost}.
           Goals {row.goalsFor}–{row.goalsAgainst}. {row.points - row.pointsDeduction} points.
         </p>
+      )}
+      {withApps.length > 0 && (
+        <div>
+          <div className="panel__head" style={{ marginTop: 8 }}>Your season</div>
+          <table className="data">
+            <tbody>
+              {topScorer && topScorer.s.goals > 0 && (
+                <tr>
+                  <td>Top scorer</td>
+                  <td>{topScorer.p.shortName}</td>
+                  <td className="num strong">{topScorer.s.goals} goals</td>
+                </tr>
+              )}
+              {bestRated && (
+                <tr>
+                  <td>Player of the season</td>
+                  <td>{bestRated.p.shortName}</td>
+                  <td className="num strong">{bestRated.avg.toFixed(2)} average</td>
+                </tr>
+              )}
+              {motmLeader && motmLeader.s.motm > 0 && (
+                <tr>
+                  <td>Most match awards</td>
+                  <td>{motmLeader.p.shortName}</td>
+                  <td className="num strong">{motmLeader.s.motm} ★</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
       <div>
         <div className="panel__head" style={{ marginTop: 8 }}>Cup competitions</div>

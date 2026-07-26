@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Football Champ</title>
+    <script>
+      // The game is a single view with no client-side routes, but GitHub Pages serves this file
+      // for any unknown path. Send stray links back to the game rather than showing a 404.
+      var base = location.pathname.split('/').slice(0, 2).join('/') + '/';
+      location.replace(base);
+    </script>
+  </head>
+  <body>
+    <p>Redirecting to <a href="/">Football Champ</a>…</p>
+  </body>
+</html>

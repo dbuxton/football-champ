@@ -88,13 +88,26 @@ you care about a career. You can import it again from the start screen.
 
 ## Deploying it yourself
 
-The included GitHub Action builds and publishes to GitHub Pages on every push to `main`.
+The included GitHub Action type-checks, tests, builds and publishes to GitHub Pages on every push.
 
-**One manual step is required after the first push:** go to **Settings → Pages** in your repository
-and set **Source** to **GitHub Actions**. GitHub does not allow a workflow to change that for you.
+**You need to turn Pages on once, by hand.** Go to **Settings → Pages** and set **Source** to
+**GitHub Actions**. Until you do, the workflow completes its build and tests and then fails at the
+`configure-pages` step with:
 
-The site is then served from `https://<your-username>.github.io/football-champ/`. If you fork this
-under a different repository name, change `base` in `vite.config.ts` to match.
+```
+Create Pages site failed. Error: Resource not accessible by integration
+```
+
+The workflow asks to enable Pages itself (`enablement: true`), but the automatic GitHub Actions
+token is not permitted to create a Pages site, so this switch has to be flipped by a human. It is a
+one-time step — every push after that deploys on its own.
+
+**If the repository is private**, note that GitHub Pages on a private repository requires a paid
+plan (Pro, Team or Enterprise). On a free account you will need to make the repository public
+before Pages will publish at all.
+
+Once it deploys, the site is served from `https://<your-username>.github.io/football-champ/`. If
+you fork this under a different repository name, change `base` in `vite.config.ts` to match.
 
 ## Running it locally
 

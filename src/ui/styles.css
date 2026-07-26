@@ -612,6 +612,104 @@ table.data tbody tr.highlight { background: rgba(74, 222, 128, 0.09); }
 .news-item__body { flex: 1; min-width: 0; }
 .news-item__preview { color: var(--text-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.news-item__cat {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.cat--board { color: var(--gold); }
+.cat--transfer { color: var(--blue); }
+.cat--match { color: var(--accent); }
+.cat--injury { color: var(--red); }
+.cat--media { color: var(--text-dim); }
+.cat--squad { color: var(--accent-dim); }
+.cat--finance { color: var(--amber); }
+.cat--youth { color: #7ec8a9; }
+.cat--competition { color: var(--gold); }
+.cat--staff { color: var(--text-dim); }
+.cat--award { color: var(--gold); }
+.cat--general { color: var(--text-faint); }
+
+@keyframes news-flash {
+  0% { background: rgba(227, 179, 65, 0.35); }
+  100% { background: rgba(74, 222, 128, 0.04); }
+}
+.news-item--flash { animation: news-flash 2.2s ease-out 2; }
+
+/* -------------------------------------------------------------- attention */
+
+.pill--clickable { cursor: pointer; font-family: inherit; }
+.pill--clickable:hover { border-color: var(--amber); background: var(--bg-panel-2); }
+
+.attention-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  color: var(--text);
+  font: inherit;
+  padding: 7px 11px;
+  cursor: pointer;
+}
+.attention-item:hover { background: var(--bg-raised); }
+.attention-item--action { border-left-color: var(--accent); }
+.attention-item--warn { border-left-color: var(--amber); }
+.attention-item--info { border-left-color: var(--border-bright); }
+.attention-item__label { display: block; font-weight: 600; font-size: 12px; }
+.attention-item--warn .attention-item__label { color: var(--amber); }
+.attention-item--action .attention-item__label { color: var(--accent); }
+.attention-item__detail { display: block; color: var(--text-dim); font-size: 11px; margin-top: 1px; }
+
+/* ----------------------------------------------------------------- digest */
+
+.digest {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-bright);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.digest__lead { font-weight: 700; }
+
+/* objective status pills */
+.pill--objective-on-track { color: var(--accent); border-color: var(--accent-dim); }
+.pill--objective-behind { color: var(--amber); border-color: #6d5220; }
+.pill--objective-met { color: var(--gold); border-color: #6d5a20; }
+.pill--objective-failed { color: var(--red); border-color: #6d3330; }
+
+/* ------------------------------------------------------------- stat cards */
+
+.statcards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.statcard {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 12px;
+}
+.statcard__label {
+  color: var(--text-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.statcard__value { font-size: 19px; font-weight: 700; margin: 2px 0; }
+.statcard__hint { color: var(--text-faint); font-size: 11px; }
+
 .toast {
   position: fixed;
   bottom: 16px;

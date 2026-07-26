@@ -9,6 +9,7 @@
 import { Rng, deriveSeed } from './rngProxy';
 import { addDaysISO, dayOfWeek, monthOf, parseISO } from '../engine/date';
 import { GameState, PendingStop, getClub, fixturesOn } from '../engine/gamestate';
+import { positionOf } from '../engine/table';
 import { simulateFixture } from '../engine/postmatch';
 import { processCupRound, processPlayoff, playoffNeedsWinner, aggregateFor } from '../engine/cups';
 import { processWeeklyFinances } from '../engine/finance';
@@ -32,6 +33,19 @@ export interface AdvanceResult {
   stop: PendingStop;
   /** Days actually advanced. */
   days: number;
+  /** What happened while time passed — built fresh on every advance, never saved. */
+  digest: AdvanceDigest;
+}
+
+export interface AdvanceDigest {
+  fromDate: string;
+  toDate: string;
+  days: number;
+  /** The manager's fixtures played during the advance (auto-play or overlapping cup cards). */
+  ourFixtureIds: string[];
+  positionBefore: number;
+  positionAfter: number;
+  importantNews: { id: string; subject: string }[];
 }
 
 /**
@@ -39,19 +53,55 @@ export interface AdvanceResult {
  * never spin the loop forever.
  */
 export function advance(state: GameState, maxDays = 400): AdvanceResult {
+  const fromDate = state.date;
+  const club = getClub(state, state.manager.clubId);
+  const positionBefore = positionOf(state, club.leagueId, club.id);
+  const newsBefore = new Set(state.news.map((n) => n.id));
+
   let days = 0;
-
+  let stop: PendingStop = { kind: 'none' };
   while (days < maxDays) {
-    const stop = advanceOneDay(state);
+    stop = advanceOneDay(state);
     days += 1;
-    if (stop.kind !== 'none') {
-      state.pendingStop = stop;
-      return { stop, days };
-    }
+    if (stop.kind !== 'none') break;
   }
+  state.pendingStop = stop;
 
-  state.pendingStop = { kind: 'none' };
-  return { stop: { kind: 'none' }, days };
+  const digest: AdvanceDigest = {
+    fromDate,
+    toDate: state.date,
+    days,
+    ourFixtureIds: state.fixtures
+      .filter((f) => f.played && f.date > fromDate && f.date <= state.date &&
+        (f.homeClubId === club.id || f.awayClubId === club.id))
+      .map((f) => f.id),
+    positionBefore,
+    positionAfter: positionOf(state, club.leagueId, club.id),
+    importantNews: state.news
+      .filter((n) => n.important && !newsBefore.has(n.id))
+      .map((n) => ({ id: n.id, subject: n.subject })),
+  };
+
+  return { stop, days, digest };
+}
+
+/** The Continue button's context-aware label — the CM heartbeat. */
+export function continueLabel(state: GameState): string {
+  const next = nextHumanFixture(state);
+  if (next && next.date <= state.date) return 'Go to match ▸';
+  return 'Continue ▸';
+}
+
+/** A short next-fixture hint for the header, e.g. "IPS (H) · 3d". */
+export function nextFixtureHint(state: GameState): string | null {
+  const next = nextHumanFixture(state);
+  if (!next) return null;
+  const managedId = state.manager.clubId;
+  const home = next.homeClubId === managedId;
+  const opponent = getClub(state, home ? next.awayClubId : next.homeClubId);
+  const days = daysUntilNextFixture(state);
+  const when = days === null ? '' : days <= 0 ? 'today' : `${days}d`;
+  return `${opponent.shortName} (${home ? 'H' : 'A'})${when ? ` · ${when}` : ''}`;
 }
 
 /** Advance a single day and report whether the manager is needed. */

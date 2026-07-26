@@ -1,25 +1,54 @@
 /**
- * Home: the inbox, plus an at-a-glance summary of where the club stands.
+ * Home: the manager's desk. What needs you, what just happened, the next match, and the inbox —
+ * in that order of importance.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGame } from '../GameContext';
 import { getClub, squadOf } from '../../engine/gamestate';
-import { NewsItem, PressAnswer, PressQuestion } from '../../engine/types';
+import { NewsCategory, NewsItem, PressAnswer, PressQuestion } from '../../engine/types';
 import { formatDate } from '../../engine/date';
 import { tableFor, positionOf, zoneFor } from '../../engine/table';
 import { squadMorale } from '../../engine/progression';
-import { jobSecurityLabel, ordinal, squadWarnings } from '../../engine/board';
+import { jobSecurityLabel, ordinal } from '../../engine/board';
+import { attentionItems, AttentionItem } from '../../engine/attention';
 import {
   answerPressConference, readNews, respondToIncomingBid, respondToTransferRequest,
 } from '../../game/actions';
 import { markAllRead } from '../../engine/news';
-import { Bar, FormGuide, Kit, Modal, Panel, money } from '../components';
+import { Bar, FormGuide, Kit, Modal, Panel, Tabs, money } from '../components';
 import { nextHumanFixture, daysUntilNextFixture } from '../../game/loop';
+import { ResultModal } from '../ResultDetails';
+import { ContractDialog } from './TransferDialogs';
+
+const CATEGORY_META: Record<NewsCategory, { glyph: string; cls: string }> = {
+  board: { glyph: '◆', cls: 'cat--board' },
+  transfer: { glyph: '⇄', cls: 'cat--transfer' },
+  match: { glyph: '⚽', cls: 'cat--match' },
+  injury: { glyph: '✚', cls: 'cat--injury' },
+  media: { glyph: '☏', cls: 'cat--media' },
+  squad: { glyph: '▣', cls: 'cat--squad' },
+  finance: { glyph: '£', cls: 'cat--finance' },
+  youth: { glyph: '✿', cls: 'cat--youth' },
+  competition: { glyph: '★', cls: 'cat--competition' },
+  staff: { glyph: '⚙', cls: 'cat--staff' },
+  award: { glyph: '✪', cls: 'cat--award' },
+  general: { glyph: '·', cls: 'cat--general' },
+};
+
+function hasAction(item: NewsItem): boolean {
+  return Boolean(item.action && item.action.kind !== 'acknowledge');
+}
 
 export function HomeScreen() {
-  const { state, refresh, setScreen, showToast, inspectPlayer } = useGame();
+  const {
+    state, refresh, setScreen, showToast, inspectPlayer, focusNewsIds, digest, setDigest,
+  } = useGame();
   const [open, setOpen] = useState<NewsItem | null>(null);
+  const [contractFor, setContractFor] = useState<string | null>(null);
+  const [openResultId, setOpenResultId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'unread' | 'action'>('all');
+
   const club = getClub(state, state.manager.clubId);
   const league = state.competitions[club.leagueId];
   const table = league ? tableFor(state, league.id) : [];
@@ -30,8 +59,9 @@ export function HomeScreen() {
   const opponent = next
     ? state.clubs[next.homeClubId === club.id ? next.awayClubId : next.homeClubId]
     : null;
-  const warnings = squadWarnings(state, club.id);
   const squad = squadOf(state, club.id);
+  const attention = attentionItems(state);
+  const objectives = club.board.objectives ?? [];
 
   const openItem = (item: NewsItem) => {
     setOpen(item);
@@ -39,8 +69,84 @@ export function HomeScreen() {
     refresh();
   };
 
+  // When the clock stopped for exactly one decision, open it — don't make the manager hunt.
+  const autoOpened = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusNewsIds || focusNewsIds.length === 0) return;
+    const key = focusNewsIds.join('|');
+    if (autoOpened.current === key) return;
+    autoOpened.current = key;
+    const actionable = focusNewsIds
+      .map((id) => state.news.find((n) => n.id === id))
+      .filter((n): n is NewsItem => Boolean(n && hasAction(n)));
+    if (actionable.length === 1) openItem(actionable[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusNewsIds]);
+
+  const onAttention = (item: AttentionItem) => {
+    if (item.newsId) {
+      const news = state.news.find((n) => n.id === item.newsId);
+      if (news) openItem(news);
+      return;
+    }
+    setScreen(item.target);
+    if (item.playerId) inspectPlayer(item.playerId);
+  };
+
+  // Decisions float to the top of the inbox; the filters cut the rest down.
+  const matchesFilter = (item: NewsItem) =>
+    filter === 'unread' ? !item.read : filter === 'action' ? hasAction(item) : true;
+  const pinned = state.news.filter((n) => hasAction(n) && !n.read && matchesFilter(n));
+  const pinnedIds = new Set(pinned.map((n) => n.id));
+  const rest = state.news.filter((n) => matchesFilter(n) && !pinnedIds.has(n.id)).slice(0, 120);
+  const inboxList = [...pinned, ...rest];
+
+  const digestFixtures = (digest?.ourFixtureIds ?? [])
+    .map((id) => state.fixtures.find((f) => f.id === id))
+    .filter((f): f is NonNullable<typeof f> => Boolean(f?.result));
+  const openResult = openResultId ? state.fixtures.find((f) => f.id === openResultId) : null;
+
   return (
     <>
+      {digest && (
+        <div className="digest">
+          <span className="digest__lead">
+            {digest.days === 1 ? 'A day passed.' : `${digest.days} days passed.`}
+          </span>
+          {digest.positionAfter > 0 && digest.positionBefore > 0 &&
+            digest.positionAfter !== digest.positionBefore && (
+            <span className={digest.positionAfter < digest.positionBefore ? 'pos' : 'neg'}>
+              {ordinal(digest.positionBefore)} → {ordinal(digest.positionAfter)}
+            </span>
+          )}
+          {digestFixtures.map((fixture) => {
+            const isHome = fixture.homeClubId === club.id;
+            const other = state.clubs[isHome ? fixture.awayClubId : fixture.homeClubId];
+            const us = isHome ? fixture.result!.homeGoals : fixture.result!.awayGoals;
+            const them = isHome ? fixture.result!.awayGoals : fixture.result!.homeGoals;
+            return (
+              <button
+                key={fixture.id}
+                type="button"
+                className={`btn btn--small ${us > them ? 'pos' : us < them ? 'neg' : ''}`}
+                onClick={() => setOpenResultId(fixture.id)}
+              >
+                {other?.shortName} {us}-{them} ({isHome ? 'H' : 'A'})
+              </button>
+            );
+          })}
+          {digest.importantNews.length > 0 && (
+            <span className="muted small">
+              {digest.importantNews.length} important item{digest.importantNews.length > 1 ? 's' : ''} in the inbox
+            </span>
+          )}
+          <span className="spacer" style={{ flex: 1 }} />
+          <button type="button" className="btn btn--small" onClick={() => setDigest(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <div className="grid grid--2">
         <Panel
           title="Inbox"
@@ -55,31 +161,120 @@ export function HomeScreen() {
             </button>
           }
         >
+          <Tabs
+            tabs={[
+              { id: 'all', label: 'All' },
+              { id: 'unread', label: 'Unread', badge: state.news.filter((n) => !n.read).length || undefined },
+              { id: 'action', label: 'Needs a decision', badge: state.news.filter((n) => hasAction(n) && !n.read).length || undefined },
+            ]}
+            active={filter}
+            onChange={setFilter}
+          />
           <div className="scroll-y" style={{ maxHeight: 520 }}>
-            {state.news.length === 0 && <p className="muted" style={{ padding: 12 }}>Nothing yet.</p>}
-            {state.news.slice(0, 120).map((item) => (
-              <div
-                key={item.id}
-                className={`news-item${item.read ? '' : ' news-item--unread'}`}
-                onClick={() => openItem(item)}
-              >
-                <span className="news-item__date">{formatDate(item.date).slice(0, 12)}</span>
-                <span className="news-item__body">
-                  <span className="news-item__subject">
-                    {item.important && <span className="warn">! </span>}
-                    {item.subject}
+            {inboxList.length === 0 && <p className="muted" style={{ padding: 12 }}>Nothing here.</p>}
+            {inboxList.map((item) => {
+              const meta = CATEGORY_META[item.category] ?? CATEGORY_META.general;
+              const flash = focusNewsIds?.includes(item.id);
+              return (
+                <div
+                  key={item.id}
+                  className={[
+                    'news-item',
+                    item.read ? '' : 'news-item--unread',
+                    flash ? 'news-item--flash' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => openItem(item)}
+                >
+                  <span className={`news-item__cat ${meta.cls}`} title={item.category}>{meta.glyph}</span>
+                  <span className="news-item__date">{formatDate(item.date).slice(0, 12)}</span>
+                  <span className="news-item__body">
+                    <span className="news-item__subject">
+                      {item.important && <span className="warn">! </span>}
+                      {item.subject}
+                    </span>
+                    <span className="news-item__preview">{item.body}</span>
                   </span>
-                  <span className="news-item__preview">{item.body}</span>
-                </span>
-                {item.action && item.action.kind !== 'acknowledge' && (
-                  <span className="pill pill--good">Action</span>
-                )}
-              </div>
-            ))}
+                  {hasAction(item) && <span className="pill pill--good">Decision</span>}
+                </div>
+              );
+            })}
           </div>
         </Panel>
 
         <div>
+          {attention.filter((a) => !a.newsId).length > 0 && (
+            <Panel title="Needs your attention" flush>
+              <div className="col" style={{ gap: 0 }}>
+                {attention.filter((a) => !a.newsId).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`attention-item attention-item--${item.severity}`}
+                    onClick={() => onAttention(item)}
+                  >
+                    <span className="attention-item__label">{item.label}</span>
+                    {item.detail && <span className="attention-item__detail">{item.detail}</span>}
+                  </button>
+                ))}
+              </div>
+            </Panel>
+          )}
+
+          {next && opponent && (
+            <Panel title="Next fixture">
+              <div className="col">
+                <div className="row" style={{ gap: 10 }}>
+                  <Kit club={opponent} />
+                  <span className="strong big">{opponent.name}</span>
+                </div>
+                <div className="muted">
+                  {next.homeClubId === club.id ? 'Home' : 'Away'} ·{' '}
+                  {state.competitions[next.competitionId]?.name}
+                  {next.roundName ? ` · ${next.roundName}` : ''}
+                </div>
+                <div className="mono">
+                  {formatDate(next.date)}
+                  {daysAway !== null && daysAway > 0 ? ` — in ${daysAway} day${daysAway > 1 ? 's' : ''}` : ' — today'}
+                </div>
+                {club.rivalIds.includes(opponent.id) && (
+                  <span className="pill pill--warn" style={{ alignSelf: 'flex-start' }}>Local derby</span>
+                )}
+                <div className="row">
+                  <button type="button" className="btn btn--small btn--primary" onClick={() => setScreen('tactics')}>
+                    Pick your side
+                  </button>
+                  <button type="button" className="btn btn--small" onClick={() => setScreen('fixtures')}>
+                    All fixtures
+                  </button>
+                </div>
+              </div>
+            </Panel>
+          )}
+
+          {objectives.length > 0 && (
+            <Panel title="Season objectives" flush>
+              <table className="data">
+                <tbody>
+                  {objectives.map((objective) => (
+                    <tr key={objective.label}>
+                      <td>
+                        <span className={`pill pill--objective-${objective.status}`}>
+                          {objective.status === 'on-track' ? 'On track'
+                            : objective.status === 'behind' ? 'Behind'
+                            : objective.status === 'met' ? 'Achieved' : 'Missed'}
+                        </span>
+                      </td>
+                      <td>{objective.label}</td>
+                      <td className="muted small right">
+                        {objectiveProgress(objective, position, state, club.id)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Panel>
+          )}
+
           <Panel title="Club summary">
             <div className="col">
               <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -119,8 +314,10 @@ export function HomeScreen() {
                 <span className="row"><Bar value={club.fanHappiness} showValue /></span>
               </div>
               <div className="row" style={{ justifyContent: 'space-between' }}>
-                <span className="muted">Board expects</span>
-                <span>{club.board.expectation}</span>
+                <span className="muted">Balance</span>
+                <span className={club.finances.balance < 0 ? 'neg strong' : 'strong'}>
+                  {money(club.finances.balance)}
+                </span>
               </div>
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <span className="muted">Squad</span>
@@ -138,47 +335,6 @@ export function HomeScreen() {
               </div>
             </div>
           </Panel>
-
-          {next && opponent && (
-            <Panel title="Next fixture">
-              <div className="col">
-                <div className="row" style={{ gap: 10 }}>
-                  <Kit club={opponent} />
-                  <span className="strong big">{opponent.name}</span>
-                </div>
-                <div className="muted">
-                  {next.homeClubId === club.id ? 'Home' : 'Away'} ·{' '}
-                  {state.competitions[next.competitionId]?.name}
-                  {next.roundName ? ` · ${next.roundName}` : ''}
-                </div>
-                <div className="mono">
-                  {formatDate(next.date)}
-                  {daysAway !== null && daysAway > 0 ? ` — in ${daysAway} day${daysAway > 1 ? 's' : ''}` : ' — today'}
-                </div>
-                {club.rivalIds.includes(opponent.id) && (
-                  <span className="pill pill--warn" style={{ alignSelf: 'flex-start' }}>Local derby</span>
-                )}
-                <div className="row">
-                  <button type="button" className="btn btn--small" onClick={() => setScreen('tactics')}>
-                    Pick your side
-                  </button>
-                  <button type="button" className="btn btn--small" onClick={() => setScreen('fixtures')}>
-                    All fixtures
-                  </button>
-                </div>
-              </div>
-            </Panel>
-          )}
-
-          {warnings.length > 0 && (
-            <Panel title="Warnings">
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
-                {warnings.map((warning) => (
-                  <li key={warning} className="warn">{warning}</li>
-                ))}
-              </ul>
-            </Panel>
-          )}
 
           <Panel title={`${league?.shortName ?? 'League'} — around you`} flush>
             <table className="data">
@@ -214,10 +370,42 @@ export function HomeScreen() {
           onClose={() => { setOpen(null); refresh(); }}
           onAction={(message, error) => showToast(message, error)}
           onInspect={inspectPlayer}
+          onOpenContract={(playerId) => { setOpen(null); setContractFor(playerId); }}
         />
+      )}
+
+      {contractFor && (
+        <ContractDialog playerId={contractFor} onClose={() => { setContractFor(null); refresh(); }} />
+      )}
+
+      {openResult?.result && (
+        <ResultModal fixture={openResult} onClose={() => setOpenResultId(null)} />
       )}
     </>
   );
+}
+
+function objectiveProgress(
+  objective: NonNullable<ReturnType<typeof getClub>['board']['objectives']>[number],
+  position: number,
+  state: ReturnType<typeof useGame>['state'],
+  clubId: string,
+): string {
+  if (objective.kind === 'league' && objective.targetPosition) {
+    return position > 0 ? `${ordinal(position)} · target ${ordinal(objective.targetPosition)}` : '';
+  }
+  if (objective.kind === 'cup' && objective.competitionId) {
+    const cup = state.cups[objective.competitionId];
+    if (!cup) return '';
+    if (cup.winnerClubId === clubId) return 'Winners';
+    const out = cup.eliminatedInRound[clubId];
+    if (out !== undefined) return `Out at the ${(cup.roundNames[out] ?? 'early rounds').toLowerCase()}`;
+    if (cup.remainingClubIds.includes(clubId)) {
+      return `In the ${(cup.roundNames[cup.currentRound] ?? 'draw').toLowerCase()}`;
+    }
+    return 'Awaiting entry';
+  }
+  return '';
 }
 
 function NewsModal({
@@ -225,11 +413,13 @@ function NewsModal({
   onClose,
   onAction,
   onInspect,
+  onOpenContract,
 }: {
   item: NewsItem;
   onClose: () => void;
   onAction: (message: string, error?: boolean) => void;
   onInspect: (id: string | null) => void;
+  onOpenContract: (playerId: string) => void;
 }) {
   const { state, refresh } = useGame();
   const [answers, setAnswers] = useState<Record<number, number>>({});
@@ -292,6 +482,24 @@ function NewsModal({
             Accept the bid
           </button>
         </>
+      );
+    }
+
+    if (action.kind === 'contract-response') {
+      const offer = state.contractOffers.find((o) => o.id === action.offerId);
+      const playerId = offer?.playerId ?? item.relatedPlayerId;
+      if (!offer || !playerId || offer.status === 'expired' || offer.status === 'withdrawn' ||
+        offer.status === 'completed') {
+        return <span className="muted">These talks have concluded.</span>;
+      }
+      return (
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={() => onOpenContract(playerId)}
+        >
+          {offer.status === 'accepted' ? 'Complete the signing' : 'Open contract talks'}
+        </button>
       );
     }
 
@@ -381,6 +589,23 @@ function NewsModal({
                 <tr><td>Sell-on clause</td><td className="num">{offer.sellOnPercent}%</td></tr>
               )}
               <tr><td>Status</td><td className="num">{offer.status}</td></tr>
+            </tbody>
+          </table>
+        );
+      })()}
+
+      {action?.kind === 'contract-response' && (() => {
+        const offer = state.contractOffers.find((o) => o.id === action.offerId);
+        if (!offer?.demands) return null;
+        return (
+          <table className="data" style={{ marginTop: 10 }}>
+            <tbody>
+              <tr><td>He wants</td><td className="num strong">£{offer.demands.wage.toLocaleString()}/w</td></tr>
+              <tr><td>Length</td><td className="num">{offer.demands.years} years</td></tr>
+              <tr><td>Status</td><td className="num">{offer.demands.squadStatus}</td></tr>
+              {offer.demands.signingOnFee > 0 && (
+                <tr><td>Signing-on fee</td><td className="num">£{offer.demands.signingOnFee.toLocaleString()}</td></tr>
+              )}
             </tbody>
           </table>
         );

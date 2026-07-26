@@ -6,9 +6,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { backgroundAutosave, Screen, useGame } from './GameContext';
 import { formatDate } from '../engine/date';
 import { getClub, unreadNews } from '../engine/gamestate';
-import { advance, completeMatchDay, nextHumanFixture, rolloverSeason } from '../game/loop';
+import {
+  advance, completeMatchDay, continueLabel, nextFixtureHint, rolloverSeason,
+} from '../game/loop';
 import { positionOf, tableFor } from '../engine/table';
-import { squadWarnings, jobSecurityLabel, ordinal } from '../engine/board';
+import { jobSecurityLabel, ordinal } from '../engine/board';
+import { attentionItems, AttentionItem } from '../engine/attention';
 import { Kit, money, Modal } from './components';
 
 import { HomeScreen } from './screens/Home';
@@ -76,10 +79,14 @@ const NAV: { group: string; items: { id: Screen; label: string }[] }[] = [
 
 export function App({ onQuit }: { onQuit: () => void }) {
   const game = useGame();
-  const { state, refresh, screen, setScreen, showToast, inspectedPlayerId, inspectPlayer } = game;
+  const {
+    state, refresh, screen, setScreen, showToast, inspectedPlayerId, inspectPlayer,
+    setFocusNews, setDigest,
+  } = game;
   const [advancing, setAdvancing] = useState(false);
   const [seasonEnd, setSeasonEnd] = useState(false);
   const [sacked, setSacked] = useState(false);
+  const [attentionOpen, setAttentionOpen] = useState(false);
 
   const club = getClub(state, state.manager.clubId);
   const unread = unreadNews(state).length;
@@ -90,6 +97,8 @@ export function App({ onQuit }: { onQuit: () => void }) {
         setScreen('match');
         break;
       case 'news':
+        // Carry the ids through so the inbox can highlight — and open — what stopped the clock.
+        setFocusNews(stop.newsIds);
         setScreen('home');
         break;
       case 'season-end':
@@ -101,7 +110,7 @@ export function App({ onQuit }: { onQuit: () => void }) {
       default:
         break;
     }
-  }, [setScreen]);
+  }, [setScreen, setFocusNews]);
 
   const doAdvance = useCallback(() => {
     if (advancing) return;
@@ -110,11 +119,19 @@ export function App({ onQuit }: { onQuit: () => void }) {
     setTimeout(() => {
       const result = advance(state);
       refresh();
+      // Keep the digest when time genuinely passed or matches were played out of sight.
+      setDigest(result.digest.days > 1 || result.digest.ourFixtureIds.length > 0
+        ? result.digest
+        : null);
+      if (result.stop.kind === 'none') {
+        showToast(`Nothing needs you — ${result.days} day${result.days > 1 ? 's' : ''} passed.`);
+        setScreen('home');
+      }
       handleStop(result.stop);
       backgroundAutosave(state);
       setAdvancing(false);
     }, 10);
-  }, [advancing, state, refresh, handleStop]);
+  }, [advancing, state, refresh, handleStop, setDigest, showToast, setScreen]);
 
   // Space bar advances, as it did in the originals.
   useEffect(() => {
@@ -149,8 +166,20 @@ export function App({ onQuit }: { onQuit: () => void }) {
 
   const league = state.competitions[club.leagueId];
   const position = league ? positionOf(state, league.id, club.id) : 0;
-  const warnings = squadWarnings(state, club.id);
-  const next = nextHumanFixture(state);
+  const attention = attentionItems(state);
+  const needsYou = attention.filter((item) => item.severity !== 'info');
+  const hint = nextFixtureHint(state);
+
+  const goToAttention = useCallback((item: AttentionItem) => {
+    setAttentionOpen(false);
+    if (item.newsId) {
+      setFocusNews([item.newsId]);
+      setScreen('home');
+      return;
+    }
+    setScreen(item.target);
+    if (item.playerId) inspectPlayer(item.playerId);
+  }, [setScreen, setFocusNews, inspectPlayer]);
 
   return (
     <div className="app">
@@ -166,16 +195,23 @@ export function App({ onQuit }: { onQuit: () => void }) {
           <span>Board <b>{jobSecurityLabel(club.board.confidence)}</b></span>
         </span>
         <span className="header__spacer" />
-        {warnings.length > 0 && (
-          <span className="pill pill--warn" title={warnings.join('\n')}>
-            {warnings.length} warning{warnings.length > 1 ? 's' : ''}
-          </span>
+        {needsYou.length > 0 && (
+          <button
+            type="button"
+            className="pill pill--warn pill--clickable"
+            onClick={() => setAttentionOpen(true)}
+          >
+            {needsYou.length} need{needsYou.length > 1 ? '' : 's'} attention
+          </button>
         )}
         <span className="mono muted">{formatDate(state.date)}</span>
         {screen !== 'match' && (
-          <button type="button" className="btn btn--primary" onClick={doAdvance} disabled={advancing}>
-            {advancing ? 'Simulating…' : next && next.date === state.date ? 'Match day' : 'Continue ▸'}
-          </button>
+          <span className="col" style={{ gap: 2, alignItems: 'flex-end' }}>
+            <button type="button" className="btn btn--primary" onClick={doAdvance} disabled={advancing}>
+              {advancing ? 'Simulating…' : continueLabel(state)}
+            </button>
+            {hint && <span className="faint small mono">Next: {hint}</span>}
+          </span>
         )}
       </header>
 
@@ -223,6 +259,25 @@ export function App({ onQuit }: { onQuit: () => void }) {
 
       {inspectedPlayerId && (
         <PlayerProfile playerId={inspectedPlayerId} onClose={() => inspectPlayer(null)} />
+      )}
+
+      {attentionOpen && (
+        <Modal title="Needs your attention" onClose={() => setAttentionOpen(false)} width={520}>
+          <div className="col" style={{ gap: 6 }}>
+            {attention.length === 0 && <p className="muted" style={{ margin: 0 }}>All clear.</p>}
+            {attention.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`attention-item attention-item--${item.severity}`}
+                onClick={() => goToAttention(item)}
+              >
+                <span className="attention-item__label">{item.label}</span>
+                {item.detail && <span className="attention-item__detail">{item.detail}</span>}
+              </button>
+            ))}
+          </div>
+        </Modal>
       )}
 
       {seasonEnd && (

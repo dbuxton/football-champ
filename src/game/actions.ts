@@ -26,6 +26,8 @@ import { IndividualFocus, TrainingState } from '../engine/gamestate';
 import { computeValue } from '../engine/players';
 import { snapshot, restore } from './save';
 import { makeBoardRequest } from '../engine/board';
+import { ROLE_CAPS, roleCapReached, staffWageDemand } from '../engine/staffmarket';
+import { addDaysISO } from '../engine/date';
 
 // ---------------------------------------------------------------------------------------------
 // Undo guardrail
@@ -430,6 +432,36 @@ export function assignScoutTo(
 
 export function recallScout(state: GameState, scoutId: string): void {
   unassignScout(state, scoutId);
+}
+
+/** Appoint a free-agent member of staff. The other half of the market sackStaff created. */
+export function hireStaff(state: GameState, staffId: string): BidResult {
+  const club = getClub(state, state.manager.clubId);
+  const member = state.staff[staffId];
+  if (!member || member.clubId) return { ok: false, message: 'That person is not available.' };
+  if (roleCapReached(state, club.id, member.role)) {
+    return {
+      ok: false,
+      message: `You already carry a full complement in that role (${ROLE_CAPS[member.role]}). Dismiss somebody first.`,
+    };
+  }
+  if (club.finances.balance < 0) {
+    return { ok: false, message: 'The board will not sanction new appointments while the club is in the red.' };
+  }
+
+  const wage = staffWageDemand(state, member);
+  recordUndo(state, `Hire ${member.shortName}`);
+  member.clubId = club.id;
+  member.wage = wage;
+  member.contractExpires = addDaysISO(state.date, 730);
+  member.assignment = null;
+  club.staffIds.push(member.id);
+  addNews(state, {
+    category: 'staff',
+    subject: `${member.shortName} joins the staff`,
+    body: `${member.firstName} ${member.lastName} has been appointed ${member.role} on £${wage.toLocaleString()} per week, on a two-year deal.`,
+  });
+  return { ok: true, message: `${member.shortName} has been appointed ${member.role}.` };
 }
 
 export function sackStaff(state: GameState, staffId: string): BidResult {

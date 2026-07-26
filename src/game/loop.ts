@@ -14,8 +14,10 @@ import { simulateFixture } from '../engine/postmatch';
 import { processCupRound, processPlayoff, playoffNeedsWinner, aggregateFor } from '../engine/cups';
 import { processWeeklyFinances } from '../engine/finance';
 import {
-  processDailyRecovery, processMorale, processWeeklyTraining, processYouthIntake,
+  monthlyTrainingReport, processDailyRecovery, processMorale, processWeeklyTraining,
+  processYouthIntake,
 } from '../engine/progression';
+import { replenishStaffMarket } from '../engine/staffmarket';
 import { processScouting } from '../engine/scouting';
 import {
   processTransferDay, processFreeAgents, windowOpenOn, isDeadlineDay,
@@ -128,6 +130,7 @@ export function advanceOneDay(state: GameState): PendingStop {
     processWeeklyFinances(state);
     processWeeklyTraining(state);
     processMorale(state);
+    replenishStaffMarket(state);
     assessBoardConfidence(state);
     assessObjectives(state);
     if (state.pendingStop.kind === 'sacked') return { kind: 'sacked' };
@@ -136,6 +139,7 @@ export function advanceOneDay(state: GameState): PendingStop {
   // --- Monthly processes ---------------------------------------------------------------------
   if (parseISO(state.date).getUTCDate() === 1 && monthOf(state.date) !== 7) {
     monthlyAwards(state);
+    monthlyTrainingReport(state);
   }
 
   // --- Season milestones ---------------------------------------------------------------------

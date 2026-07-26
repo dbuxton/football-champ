@@ -59,11 +59,37 @@ export function BoardScreen() {
           </div>
         </Panel>
 
-        <Panel title="Standing instructions">
+        <Panel title="Season objectives">
+          {(club.board.objectives ?? []).length > 0 ? (
+            <table className="data">
+              <tbody>
+                {(club.board.objectives ?? []).map((objective) => (
+                  <tr key={objective.label}>
+                    <td>
+                      <span className={`pill pill--objective-${objective.status}`}>
+                        {objective.status === 'on-track' ? 'On track'
+                          : objective.status === 'behind' ? 'Behind'
+                          : objective.status === 'met' ? 'Achieved' : 'Missed'}
+                      </span>
+                    </td>
+                    <td>{objective.label}</td>
+                    <td className="muted small right">
+                      {objective.kind === 'league' && objective.targetPosition && position
+                        ? `${ordinal(position)} · target ${ordinal(objective.targetPosition)}`
+                        : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>
+              Objectives are set when the season begins.
+            </p>
+          )}
+          <div className="panel__head" style={{ marginTop: 12 }}>Standing instructions</div>
           <ul style={{ margin: 0, paddingLeft: 18 }}>
-            <li>Finish the season having achieved: <b>{club.board.expectation.toLowerCase()}</b>.</li>
             <li>Keep the wage bill inside <b>{exactMoney(club.finances.wageBudget)}</b> per week.</li>
-            <li>Stay within Profitability & Sustainability limits.</li>
             <li>Give the supporters a team worth watching.</li>
           </ul>
           {warnings.length > 0 && (

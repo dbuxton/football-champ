@@ -121,10 +121,10 @@ export function generateSquad(
   return seeds;
 }
 
-function generateStaff(
+export function generateStaff(
   role: StaffRole,
   quality: number,
-  clubId: string,
+  clubId: string | null,
   currentDate: string,
   rng: Rng,
 ): Staff {

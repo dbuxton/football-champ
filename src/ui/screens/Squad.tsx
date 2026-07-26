@@ -27,7 +27,7 @@ type Filter = 'senior' | 'u21' | 'loan' | 'injured';
 function readiness(player: Player): number {
   const sharpness = 0.82 + 0.18 * (player.matchSharpness / 100);
   const morale = 0.9 + 0.2 * (player.morale / 100);
-  return Math.round(conditionCurve(player.condition) * sharpness * morale * 100);
+  return Math.min(100, Math.round(conditionCurve(player.condition) * sharpness * morale * 100));
 }
 
 export function SquadScreen() {

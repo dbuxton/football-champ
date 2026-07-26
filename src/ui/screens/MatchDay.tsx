@@ -198,9 +198,9 @@ export function MatchDayScreen({ onFinish }: { onFinish: () => void }) {
                         </tr>
                       );
                     }
-                    const ready = Math.round(conditionCurve(player.condition) *
+                    const ready = Math.min(100, Math.round(conditionCurve(player.condition) *
                       (0.82 + 0.18 * (player.matchSharpness / 100)) *
-                      (0.9 + 0.2 * (player.morale / 100)) * 100);
+                      (0.9 + 0.2 * (player.morale / 100)) * 100));
                     const form = averageForm(player);
                     return (
                       <tr key={index} className="clickable" onClick={() => inspectPlayer(player.id)}>

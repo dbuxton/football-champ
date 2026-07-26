@@ -17,15 +17,28 @@ has hired you.
 
 From there, **Continue** (or the space bar) advances the calendar day by day and stops whenever
 something needs you: a match to play, a bid to answer, a press conference, a board meeting, the end
-of the season.
+of the season. The decision that stopped the clock opens itself — you are never left hunting a
+list for what the game wants.
 
 ## What's in it
 
+**A desk, not a spreadsheet.** The home screen leads with what needs you: a prioritised attention
+panel (decisions, warnings, contracts running down, unsettled players) where every item jumps to
+the screen that fixes it; a triaged inbox with category markers and a needs-a-decision filter; a
+"what happened while time passed" digest after every advance; and a season-objectives scoreboard
+that tracks the board's league, cup and financial demands live. Your own players are rated in
+stars relative to your division — three stars is par for your level — with the raw numbers a
+tooltip away.
+
 **Match day.** A minute-by-minute possession engine where individual players are the actors —
 goalscorers, assists and ratings emerge from attributes rather than being assigned afterwards.
-Ticking commentary, live statistics including expected goals, a 2D pitch showing where play is,
-and in-match substitutions, mentality changes and pressing tweaks. Play at four speeds or skip
-straight to the result.
+The day itself is a ritual: an opposition report and team news before kick-off, a team talk with
+real consequences, then ticking commentary, live statistics including expected goals, a 2D pitch
+showing where play is, and in-match substitutions, mentality changes and pressing tweaks — at four
+speeds, or skip straight to the result. Full time brings a proper review: verdict, league-table
+movement, ratings and the whole match report. In-play penalties and direct free kicks go to your
+nominated takers; your captain's influence lifts the side; every per-player instruction on the
+tactics screen is read by the engine.
 
 **Players.** The full Championship Manager attribute model: 12 technical, 14 mental, 8 physical
 and 10 goalkeeping attributes on the 1–20 scale, plus 12 hidden ones (Consistency, Injury
@@ -33,16 +46,20 @@ Proneness, Professionalism, Ambition and the rest) you never see directly. Curre
 Ability on the 1–200 scale. Per-position familiarity, so playing a striker at left back is possible
 but costly.
 
-**Squad management.** Tactics with 12 formations, player roles, team instructions, set-piece takers
-and captaincy. Training schedules, intensity, and per-player focus. Injuries with real types and
-recurrence risk, suspensions, condition and match sharpness, morale, and players who ask to leave
-when you stop picking them.
+**Squad management.** Tactics with 12 formations, player roles, team and per-player instructions,
+set-piece takers and captaincy — all of them consumed by the match engine. A Selection view built
+for Saturday: who's in the XI, form, mood, readiness and contract flags at a glance. Training
+schedules, intensity and per-player focus, with development arrows and a monthly training report
+that names who is coming on and who is going backwards. Injuries with real types and recurrence
+risk, suspensions, condition and match sharpness, morale, and players who ask to leave when you
+stop picking them.
 
 **Transfers.** Separate negotiations with the selling club and the player, as it should be. Fees,
-instalments, sell-on clauses, add-ons; wages, contract length, signing-on fees, release clauses and
-squad-status promises you will be held to. Loans with wage splits. Free agents and Bosman moves.
-Deadline day. A scouting network whose reports are *ranges*, not numbers — and a bad scout gives
-you confidently wrong ones.
+instalments, sell-on clauses, add-ons; wages, contract length, signing-on fees, release clauses
+(which really do force a sale when met) and squad-status promises you will be held to. Appearance
+fees, goal bonuses and loyalty bonuses are real money that leaves the account. Loans with wage
+splits. Free agents and Bosman moves. Deadline day. A scouting network whose reports are *ranges*,
+not numbers — and a bad scout gives you confidently wrong ones.
 
 **Money.** Gate receipts driven by a real attendance model, season tickets, TV distribution split
 correctly between the Premier League and the EFL, parachute payments, sponsorship, merchandise,
@@ -52,8 +69,10 @@ the club into the ground.
 
 **The club.** Stadium expansion and new-build projects with real costs and build times, training
 ground and academy upgrades that pay off two or three seasons later, per-stand ticket pricing,
-backroom staff whose ratings actually drive training and recovery, an annual March youth intake,
-and a board with expectations, a confidence meter and a limited amount of patience.
+backroom staff whose ratings actually drive training, recovery and scouting — with a hiring market
+of free-agent coaches, physios and scouts, because the biggest lever on player development should
+be one you can pull — an annual March youth intake, and a board with expectations, season
+objectives, a confidence meter and a limited amount of patience.
 
 **The season.** All four divisions of the English pyramid with correct promotion, relegation and
 play-offs; the FA Cup, EFL Cup and EFL Trophy; awards, Manager of the Month, press conferences,

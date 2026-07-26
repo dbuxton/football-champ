@@ -9,7 +9,7 @@
 import { Rng, clamp, deriveSeed } from './rng';
 import { addDaysISO, dateToISO, parseISO, seasonLabel } from './date';
 import { Attributes, Player, Position, Staff } from './types';
-import { GameState, squadOf, staffOf } from './gamestate';
+import { GameState, squadOf, staffOf, snapshotPlayer } from './gamestate';
 import {
   ageOf, buildPlayer, computeValue, makeContract, totalStats, PlayerSeed,
 } from './players';
@@ -295,6 +295,7 @@ export function processYouthIntake(state: GameState): void {
       state.players[player.id] = player;
       club.playerIds.push(player.id);
       intake.push(player);
+      if (club.isPlayerControlled) snapshotPlayer(state, player.id);
     }
 
     if (!club.isPlayerControlled) continue;

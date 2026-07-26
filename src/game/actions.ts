@@ -100,6 +100,18 @@ export function setSlotRole(state: GameState, slotIndex: number, role: string): 
   club.tactics = { ...club.tactics, slots };
 }
 
+export function setSlotInstruction(
+  state: GameState,
+  slotIndex: number,
+  key: keyof Tactics['slots'][number]['instructions'],
+  value: string,
+): void {
+  const club = getClub(state, state.manager.clubId);
+  const slots = club.tactics.slots.map((s, i) =>
+    i === slotIndex ? { ...s, instructions: { ...s.instructions, [key]: value } } : s);
+  club.tactics = { ...club.tactics, slots };
+}
+
 export function updateTactics(state: GameState, changes: Partial<Tactics>): void {
   const club = getClub(state, state.manager.clubId);
   club.tactics = { ...club.tactics, ...changes };
@@ -216,6 +228,14 @@ export function respondToIncomingBid(state: GameState, offerId: string, accept: 
   if (!player) return { ok: false, message: 'Unknown player.' };
 
   if (!accept) {
+    // A bid meeting the release clause cannot be turned down — that is what the clause is for.
+    const clause = player.contract?.releaseClause ?? 0;
+    if (clause > 0 && offer.fee >= clause) {
+      return {
+        ok: false,
+        message: `The bid meets ${player.lastName}'s £${clause.toLocaleString()} release clause — you cannot refuse the fee. Whether he goes is up to him.`,
+      };
+    }
     offer.status = 'rejected';
     // Turning down good money for an unsettled player makes him unhappier still.
     if (player.morale < 45) player.morale = Math.max(5, player.morale - 6);

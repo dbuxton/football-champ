@@ -6,8 +6,8 @@
  */
 
 import {
-  Club, Competition, ContractOffer, Difficulty, Fixture, LeagueTableRow, Manager, NewsItem,
-  Player, ScoutReport, Staff, TransferOffer, Tactics,
+  Attributes, Club, Competition, ContractOffer, Difficulty, Fixture, LeagueTableRow, Manager,
+  NewsItem, Player, ScoutReport, Staff, TransferOffer, Tactics,
 } from './types';
 
 export interface CupTie {
@@ -135,9 +135,17 @@ export interface GameState {
   autoPlayMatches: boolean;
   /** Undo snapshot for the forgiving-mistakes guardrail: the last reversible action. */
   lastUndo: { label: string; date: string; snapshot: string } | null;
+
+  /**
+   * Development baselines for the managed squad, captured at the season start and when a player
+   * joins. The squad screen's development arrows compare against these.
+   */
+  attributeSnapshots: Record<string, { date: string; attributes: Attributes; ca: number }>;
+  /** Baseline for the monthly training report: playerId -> current ability last time we reported. */
+  lastTrainingReportCA: Record<string, number> | null;
 }
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 // ---------------------------------------------------------------------------------------------
 // Convenience accessors. Every one of these is used in dozens of places, so they earn their keep.
@@ -219,4 +227,28 @@ export function activeTactics(state: GameState, clubId: string): Tactics {
 /** Free agents: no club, not retired. */
 export function freeAgents(state: GameState): Player[] {
   return Object.values(state.players).filter((p) => !p.clubId && !p.retired);
+}
+
+/** Baseline one player's attributes for the development arrows. */
+export function snapshotPlayer(state: GameState, playerId: string): void {
+  const player = state.players[playerId];
+  if (!player) return;
+  state.attributeSnapshots[playerId] = {
+    date: state.date,
+    attributes: { ...player.attributes },
+    ca: player.currentAbility,
+  };
+}
+
+/**
+ * Re-baseline the whole managed squad, done at each season start. Players who joined mid-season
+ * get an individual snapshot at the moment they arrive.
+ */
+export function captureDevSnapshots(state: GameState): void {
+  const club = state.clubs[state.manager.clubId];
+  if (!club) return;
+  state.attributeSnapshots = {};
+  for (const player of squadOf(state, club.id)) {
+    snapshotPlayer(state, player.id);
+  }
 }

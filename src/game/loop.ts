@@ -19,7 +19,7 @@ import { processScouting } from '../engine/scouting';
 import {
   processTransferDay, processFreeAgents, windowOpenOn, isDeadlineDay,
 } from '../engine/transfers';
-import { assessBoardConfidence } from '../engine/board';
+import { assessBoardConfidence, assessObjectives } from '../engine/board';
 import { maybeSchedulePressConference, monthlyAwards } from '../engine/media';
 import {
   endSeason, leagueSeasonComplete, playoffsComplete, preSeasonHousekeeping, startPlayoffsIfReady,
@@ -79,6 +79,7 @@ export function advanceOneDay(state: GameState): PendingStop {
     processWeeklyTraining(state);
     processMorale(state);
     assessBoardConfidence(state);
+    assessObjectives(state);
     if (state.pendingStop.kind === 'sacked') return { kind: 'sacked' };
   }
 

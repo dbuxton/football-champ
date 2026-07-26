@@ -258,7 +258,9 @@ export function MatchDayScreen({ onFinish }: { onFinish: () => void }) {
                     <select
                       value={ourTeam.tactics.mentality}
                       onChange={(event) => {
-                        ourTeam.tactics.mentality = event.target.value as Mentality;
+                        sim.updateTactics(weAreHome ? 'home' : 'away', {
+                          mentality: event.target.value as Mentality,
+                        });
                         setTick((t) => t + 1);
                       }}
                     >
@@ -271,7 +273,9 @@ export function MatchDayScreen({ onFinish }: { onFinish: () => void }) {
                     <select
                       value={ourTeam.tactics.pressing}
                       onChange={(event) => {
-                        ourTeam.tactics.pressing = event.target.value as Pressing;
+                        sim.updateTactics(weAreHome ? 'home' : 'away', {
+                          pressing: event.target.value as Pressing,
+                        });
                         setTick((t) => t + 1);
                       }}
                     >
@@ -282,8 +286,8 @@ export function MatchDayScreen({ onFinish }: { onFinish: () => void }) {
                   </Field>
                 </div>
                 <p className="faint small" style={{ marginBottom: 0 }}>
-                  Changes take effect from the next minute. Pushing forward when you are behind
-                  works, but leaves gaps at the back.
+                  Changes take effect from the next minute, for this match only. Pushing forward
+                  when you are behind works, but leaves gaps at the back.
                 </p>
               </Panel>
 

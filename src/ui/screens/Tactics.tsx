@@ -10,7 +10,7 @@ import { FORMATIONS, ROLES_BY_POSITION } from '../../engine/formations';
 import { validateSelection } from '../../engine/selection';
 import {
   pickTeamAutomatically, setBenchSlot, setFormation, setPlayerInSlot, setSetPieceTaker,
-  setSlotRole, updateTactics,
+  setSlotInstruction, setSlotRole, updateTactics,
 } from '../../game/actions';
 import { matchEffectiveness } from '../../engine/players';
 import { Field, Panel, Attr } from '../components';
@@ -185,7 +185,6 @@ export function TacticsScreen() {
               ['penalties', 'Penalties'],
               ['freeKicks', 'Free kicks'],
               ['corners', 'Corners'],
-              ['longThrows', 'Long throws'],
               ['captain', 'Captain'],
               ['viceCaptain', 'Vice captain'],
             ] as const).map(([key, label]) => (
@@ -202,6 +201,10 @@ export function TacticsScreen() {
               </Field>
             ))}
           </div>
+          <p className="faint small" style={{ marginBottom: 0 }}>
+            Your nominated takers step up for penalties, direct free kicks and corners in matches.
+            A captain with real influence lifts the whole side; the vice-captain deputises.
+          </p>
         </Panel>
 
         <Panel title="Squad not in the matchday eighteen" flush>
@@ -296,6 +299,29 @@ function SlotEditor({
             ))}
           </select>
         </Field>
+        {slot.position !== 'GK' && (
+          <div className="grid grid--3" style={{ marginTop: 8 }}>
+            {([
+              ['forwardRuns', 'Forward runs', ['Rarely', 'Mixed', 'Often']],
+              ['longShots', 'Long shots', ['Rarely', 'Mixed', 'Often']],
+              ['crossBall', 'Cross ball', ['Rarely', 'Mixed', 'Often']],
+              ['throughBalls', 'Through balls', ['Rarely', 'Mixed', 'Often']],
+              ['tackling', 'Tackling', ['Cautious', 'Normal', 'Hard']],
+            ] as const).map(([key, label, options]) => (
+              <Field key={key} label={label}>
+                <select
+                  value={slot.instructions[key]}
+                  onChange={(event) => {
+                    setSlotInstruction(state, slotIndex, key, event.target.value);
+                    refresh();
+                  }}
+                >
+                  {options.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </Field>
+            ))}
+          </div>
+        )}
       </div>
       <table className="data">
         <thead>

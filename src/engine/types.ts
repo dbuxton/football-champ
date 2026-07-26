@@ -396,10 +396,9 @@ export interface TacticSlot {
   position: Position;
   playerId: string | null;
   role: PlayerRole;
-  /** Individual instruction toggles. */
+  /** Individual instruction toggles. Every one of these is read by the match engine. */
   instructions: {
     forwardRuns: 'Rarely' | 'Mixed' | 'Often';
-    runWithBall: 'Rarely' | 'Mixed' | 'Often';
     longShots: 'Rarely' | 'Mixed' | 'Often';
     crossBall: 'Rarely' | 'Mixed' | 'Often';
     throughBalls: 'Rarely' | 'Mixed' | 'Often';
@@ -569,6 +568,8 @@ export interface Club {
     patience: number;
     /** Days since appointment, used to soften early sackings. */
     daysInCharge: number;
+    /** Concrete season targets shown on the objectives scoreboard. Human club only. */
+    objectives?: SeasonObjective[];
   };
 
   /** Filled for the club the human manages. */
@@ -581,6 +582,19 @@ export interface Club {
 export type BoardExpectation =
   | 'Win the league' | 'Achieve promotion' | 'Challenge for promotion' | 'Finish in the top half'
   | 'Respectable mid-table finish' | 'Avoid relegation' | 'Survive and stabilise finances';
+
+/** A concrete season target the board tracks alongside the headline league expectation. */
+export interface SeasonObjective {
+  kind: 'league' | 'cup' | 'finance';
+  /** Human-readable, e.g. "Challenge for promotion" or "Reach the FA Cup fourth round". */
+  label: string;
+  competitionId?: string;
+  /** League objectives: the position to reach (or better). */
+  targetPosition?: number;
+  /** Cup objectives: the round to reach (0-indexed). */
+  targetRound?: number;
+  status: 'on-track' | 'behind' | 'met' | 'failed';
+}
 
 export interface ClubHistoryEntry {
   season: string;

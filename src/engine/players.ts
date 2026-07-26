@@ -273,13 +273,26 @@ export function isAvailable(player: Player): boolean {
   return !player.injury && player.suspensionMatches === 0 && !player.retired;
 }
 
-/** Effectiveness 0..1 in a slot, further reduced by condition, sharpness and morale. */
-export function matchEffectiveness(player: Player, playAt: Position): number {
+/** How much a given condition level costs, applied exactly once per effectiveness pathway. */
+export function conditionCurve(condition: number): number {
+  return 0.62 + 0.38 * (condition / 100);
+}
+
+/**
+ * Effectiveness 0..1 in a slot from ability, familiarity, sharpness and morale — everything
+ * except condition. The match engine tracks its own in-match condition and applies
+ * `conditionCurve` itself, so keeping condition out of the base stops it being counted twice.
+ */
+export function baseEffectiveness(player: Player, playAt: Position): number {
   const base = positionalEffectiveness(player.attributes, player.positions, playAt);
-  const conditionFactor = 0.62 + 0.38 * (player.condition / 100);
   const sharpnessFactor = 0.82 + 0.18 * (player.matchSharpness / 100);
   const moraleFactor = 0.9 + 0.2 * (player.morale / 100);
-  return base * conditionFactor * sharpnessFactor * moraleFactor;
+  return base * sharpnessFactor * moraleFactor;
+}
+
+/** Effectiveness 0..1 in a slot, further reduced by condition, sharpness and morale. */
+export function matchEffectiveness(player: Player, playAt: Position): number {
+  return baseEffectiveness(player, playAt) * conditionCurve(player.condition);
 }
 
 export function fullName(player: Player): string {

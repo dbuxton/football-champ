@@ -91,7 +91,6 @@ export function emptySlot(position: Position): TacticSlot {
     role: defaultRole(position),
     instructions: {
       forwardRuns: 'Mixed',
-      runWithBall: 'Mixed',
       longShots: 'Mixed',
       crossBall: 'Mixed',
       throughBalls: 'Mixed',

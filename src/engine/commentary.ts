@@ -94,6 +94,21 @@ export const COMMENTARY = {
     'SAVED! {keeper} guesses right and keeps out {player}\'s penalty!',
     '{player} blazes the penalty over the bar!',
   ],
+  freeKickGoal: [
+    'GOAL! {player} curls the free kick into the top corner! {home} {hg} - {ag} {away}',
+    'GOAL! A magnificent free kick from {player}! {home} {hg} - {ag} {away}',
+    'GOAL! {player} whips it over the wall and in! {home} {hg} - {ag} {away}',
+  ],
+  freeKickSaved: [
+    '{keeper} tips {player}\'s free kick over the bar.',
+    '{player} bends the free kick goalwards but {keeper} is across to hold it.',
+    'A fine save from {keeper} keeps out {player}\'s free kick.',
+  ],
+  freeKickOff: [
+    '{player}\'s free kick drifts just wide of the post.',
+    'Over the wall but over the bar too — {player} can\'t keep it down.',
+    '{player} tries his luck from the free kick but it\'s off target.',
+  ],
   corner: [
     'Corner to {team}.',
     '{team} win a corner on the right.',

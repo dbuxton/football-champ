@@ -14,9 +14,10 @@ import { GameState, SeasonHistory, getClub, squadOf } from './gamestate';
 import { emptyTable, tableFor, effectivePoints } from './table';
 import { generateSeasonFixtures } from './fixtures';
 import { initialiseCups, initialisePlayoffs } from './cups';
-import { payLeaguePrizeMoney, billSeasonTickets, closeSeasonAccounts } from './finance';
+import { payLeaguePrizeMoney, billSeasonTickets, closeSeasonAccounts, recordTransaction } from './finance';
 import { archiveSeasonStats, processRetirements, promoteYouthPlayers } from './progression';
-import { endOfSeasonReview, setSeasonBudgets, ordinal } from './board';
+import { captureDevSnapshots } from './gamestate';
+import { endOfSeasonReview, setSeasonBudgets, setSeasonObjectives, ordinal } from './board';
 import { seasonAwards, publishPredictions, squadStrength } from './media';
 import { addNews } from './news';
 import { autoPickTeam } from './selection';
@@ -181,8 +182,12 @@ export function endSeason(state: GameState): void {
   }
 
   ensureViableSquads(state);
+  // The rollover sets the date straight to 1 July, so the day loop's own 1 July hook never
+  // fires after a season ends — run the pre-season housekeeping here.
+  preSeasonHousekeeping(state);
   billSeasonTickets(state);
   publishPredictions(state);
+  if (managedClub.isPlayerControlled) setSeasonObjectives(state);
 
   if (managedClub.isPlayerControlled) {
     const comp = state.competitions[managedClub.leagueId];
@@ -389,15 +394,22 @@ function ensureViableSquads(state: GameState): void {
 /** Squad registration and pre-season housekeeping, run on 1 July. */
 export function preSeasonHousekeeping(state: GameState): void {
   for (const club of Object.values(state.clubs)) {
+    // Loyalty bonuses fall due annually — a real cost of the contracts you hand out.
+    let loyalty = 0;
     for (const player of squadOf(state, club.id)) {
       player.condition = 88;
       player.matchSharpness = 45;
       player.morale = clamp(player.morale + 10, 20, 95);
       player.bookingPoints = 0;
       player.suspensionMatches = 0;
+      loyalty += player.contract?.loyaltyBonus ?? 0;
+    }
+    if (loyalty > 0) {
+      recordTransaction(state, club.id, 'Bonuses', 'Annual loyalty bonuses', -Math.round(loyalty));
     }
     autoPickTeam(state, club.id);
   }
+  captureDevSnapshots(state);
 }
 
 /** Whether a date sits in the closed season. */

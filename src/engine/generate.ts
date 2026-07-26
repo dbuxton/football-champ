@@ -17,7 +17,7 @@ import {
   Club, ClubFacilities, ClubFinances, Competition, Difficulty, Manager, Player, Position,
   SquadStatus, Staff, StaffRole, BoardExpectation,
 } from './types';
-import { GameState, SAVE_VERSION } from './gamestate';
+import { GameState, SAVE_VERSION, captureDevSnapshots } from './gamestate';
 import {
   ALL_CLUB_SEEDS, CHAMPIONSHIP_CLUBS, ClubSeed, LEAGUE_ONE_CLUBS, LEAGUE_TWO_CLUBS,
   PREMIER_LEAGUE_CLUBS, RIVALRIES, STARTING_CLUB_POOL,
@@ -30,7 +30,7 @@ import { generateSeasonFixtures } from './fixtures';
 import { emptyTable } from './table';
 import { initialiseCups } from './cups';
 import { billSeasonTickets } from './finance';
-import { setSeasonBudgets } from './board';
+import { setSeasonBudgets, setSeasonObjectives } from './board';
 import { publishPredictions } from './media';
 
 export interface NewGameOptions {
@@ -121,10 +121,10 @@ export function generateSquad(
   return seeds;
 }
 
-function generateStaff(
+export function generateStaff(
   role: StaffRole,
   quality: number,
-  clubId: string,
+  clubId: string | null,
   currentDate: string,
   rng: Rng,
 ): Staff {
@@ -529,6 +529,8 @@ export function createNewGame(options: NewGameOptions): GameState {
     processedToday: [],
     autoPlayMatches: false,
     lastUndo: null,
+    attributeSnapshots: {},
+    lastTrainingReportCA: null,
   };
 
   // Clubs relegated from the Premier League in recent seasons carry parachute money. We don't
@@ -550,6 +552,8 @@ export function createNewGame(options: NewGameOptions): GameState {
   billSeasonTickets(state);
   for (const club of Object.values(state.clubs)) setSeasonBudgets(state, club.id);
   publishPredictions(state);
+  captureDevSnapshots(state);
+  setSeasonObjectives(state);
 
   return state;
 }

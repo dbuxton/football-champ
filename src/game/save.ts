@@ -6,7 +6,8 @@
  * clearing its storage should never cost somebody a ten-season dynasty.
  */
 
-import { GameState, SAVE_VERSION } from '../engine/gamestate';
+import { GameState, SAVE_VERSION, captureDevSnapshots } from '../engine/gamestate';
+import { deriveObjectivesFromExpectation } from '../engine/board';
 import { compress, decompress, byteSize } from './compress';
 
 const INDEX_KEY = 'football-champ:saves';
@@ -159,15 +160,23 @@ export async function importSaveFile(file: File): Promise<GameState> {
 // Migration
 // ---------------------------------------------------------------------------------------------
 
-/**
- * Upgrade older saves. There is only one version so far, but the hook exists from day one so a
- * future change never orphans somebody's career.
- */
+/** Upgrade older saves. Migrations chain, each bumping `version`, so no career is orphaned. */
 export function migrate(state: GameState): GameState {
   let migrated = state;
 
+  if (migrated.version < 2) {
+    // v2: development snapshots, the training-report baseline, and season objectives.
+    migrated = { ...migrated, version: 2 };
+    migrated.attributeSnapshots = {};
+    migrated.lastTrainingReportCA = null;
+    captureDevSnapshots(migrated);
+    const club = migrated.clubs[migrated.manager.clubId];
+    if (club && !club.board.objectives) {
+      club.board.objectives = deriveObjectivesFromExpectation(migrated);
+    }
+  }
+
   if (migrated.version < SAVE_VERSION) {
-    // Future migrations chain here, each bumping `version`.
     migrated = { ...migrated, version: SAVE_VERSION };
   }
 
@@ -181,6 +190,8 @@ export function migrate(state: GameState): GameState {
   migrated.training ??= { schedule: 'Balanced', intensity: 3, individual: {} };
   migrated.pendingStop ??= { kind: 'none' };
   migrated.lastUndo ??= null;
+  migrated.attributeSnapshots ??= {};
+  migrated.lastTrainingReportCA ??= null;
 
   return migrated;
 }

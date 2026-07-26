@@ -17,6 +17,50 @@ export function toStars(ability: number): number {
   return clamp(Math.round((ability / 200) * 10) / 2, 0.5, 5);
 }
 
+let divisionAvgCache: { key: string; value: number } | null = null;
+
+/**
+ * Average current ability across the managed club's division — the anchor that makes star
+ * ratings mean something: three stars is a typical player *at your level*, not in the abstract.
+ */
+export function divisionAverageCA(state: GameState): number {
+  const club = state.clubs[state.manager.clubId];
+  const comp = club ? state.competitions[club.leagueId] : null;
+  if (!comp) return 100;
+  const key = `${state.date}:${comp.id}`;
+  if (divisionAvgCache?.key === key) return divisionAvgCache.value;
+
+  let sum = 0;
+  let count = 0;
+  for (const clubId of comp.clubIds) {
+    for (const player of squadOf(state, clubId)) {
+      sum += player.currentAbility;
+      count += 1;
+    }
+  }
+  const value = count ? sum / count : 100;
+  divisionAvgCache = { key, value };
+  return value;
+}
+
+/** Ability → stars relative to a division average: 3 stars ≈ par for the level. */
+export function toStarsRelative(ability: number, divisionAverage: number): number {
+  const raw = ((ability / Math.max(1, divisionAverage)) - 1) * 5.5 + 3;
+  return clamp(Math.round(raw * 2) / 2, 0.5, 5);
+}
+
+/** Star ratings for a player the manager owns, relative to the division they compete in. */
+export function ownPlayerStars(
+  state: GameState,
+  player: Player,
+): { stars: number; potentialStars: number } {
+  const average = divisionAverageCA(state);
+  return {
+    stars: toStarsRelative(player.currentAbility, average),
+    potentialStars: toStarsRelative(player.potentialAbility, average),
+  };
+}
+
 /**
  * Produce a report. Accuracy is a function of the scout's judging attributes and how long they've
  * watched; an inaccurate report is not just vaguer, it is *biased*, which is what makes a bad

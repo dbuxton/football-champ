@@ -5,16 +5,17 @@
 
 import { useState } from 'react';
 import { useGame } from '../GameContext';
-import { ageOf, totalStats, monthsUntil } from '../../engine/players';
+import { ageOf, averageForm, totalStats, monthsUntil } from '../../engine/players';
 import {
   ATTRIBUTE_LABELS, Attributes, GOALKEEPING_KEYS, MENTAL_KEYS, PHYSICAL_KEYS, Player, POSITIONS,
   TECHNICAL_KEYS,
 } from '../../engine/types';
-import { knowledgeOf } from '../../engine/scouting';
+import { knowledgeOf, ownPlayerStars } from '../../engine/scouting';
 import { setIndividualFocus, releasePlayer, setTransferStatus, toggleShortlist } from '../../game/actions';
 import { IndividualFocus } from '../../engine/gamestate';
 import {
-  Attr, Bar, ConfirmDialog, Kit, Modal, Panel, abbreviateNation, exactMoney, money, stars,
+  Attr, Bar, ConfirmDialog, DevArrow, Kit, Modal, MoraleDot, Panel, abbreviateNation, exactMoney,
+  money, stars,
 } from '../components';
 import { BidDialog, ContractDialog } from './TransferDialogs';
 
@@ -98,6 +99,29 @@ export function PlayerProfile({ playerId, onClose }: { playerId: string; onClose
         onClose={onClose}
         footer={footer}
       >
+        {isOurs && (() => {
+          const own = ownPlayerStars(state, player);
+          const form = averageForm(player);
+          return (
+            <div className="row row--wrap" style={{ gap: 20, marginBottom: 10, alignItems: 'baseline' }}>
+              <span className="muted small">Ability{' '}
+                <span className="gold" title={`${player.currentAbility}/200, relative to the division`}>
+                  {stars(own.stars)}
+                </span>
+              </span>
+              <span className="muted small">Potential{' '}
+                <span className="faint">{stars(own.potentialStars)}</span>
+              </span>
+              <span className="muted small">Form{' '}
+                {form
+                  ? <b className={form >= 7.2 ? 'pos' : form < 6.2 ? 'neg' : ''}>{form.toFixed(1)}</b>
+                  : <span className="faint">—</span>}
+              </span>
+              <span className="muted small">Development <DevArrow state={state} playerId={player.id} /></span>
+              <span className="muted small">Mood <MoraleDot value={player.morale} /></span>
+            </div>
+          );
+        })()}
         <div className="grid grid--2">
           <Panel title="Personal">
             <table className="data">

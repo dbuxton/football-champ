@@ -11,7 +11,7 @@ import { addDaysISO, seasonLabel } from './date';
 import {
   ContractOffer, Player, SquadStatus, TransferOffer, TransferOfferStatus,
 } from './types';
-import { GameState, getClub, squadOf, freeAgents } from './gamestate';
+import { GameState, getClub, squadOf, freeAgents, snapshotPlayer } from './gamestate';
 import {
   ageOf, computeValue, expectedWage, monthsUntil, nextId, roundMoney, totalStats,
 } from './players';
@@ -152,6 +152,14 @@ export function evaluateTransferOffer(state: GameState, offer: TransferOffer, rn
 
   if (offer.isLoan) {
     return evaluateLoanOffer(state, offer, rng);
+  }
+
+  // A bid that meets a release clause must be accepted — that is the whole point of the clause.
+  const clause = player.contract?.releaseClause ?? 0;
+  if (clause > 0 && offer.fee >= clause) {
+    offer.status = 'accepted';
+    offer.responseText = `Your bid meets ${player.lastName}'s release clause. ${state.clubs[player.clubId]?.name} cannot stand in his way.`;
+    return 'accepted';
   }
 
   const asking = askingPrice(state, player, offer.fromClubId);
@@ -425,6 +433,7 @@ export function completeTransfer(
 
   const managed = state.manager.clubId;
   if (buyer.id === managed) {
+    snapshotPlayer(state, player.id);
     addNews(state, {
       category: 'transfer',
       important: true,
@@ -472,6 +481,7 @@ export function completeLoan(
   autoPickTeam(state, borrower.id);
 
   const managed = state.manager.clubId;
+  if (borrower.id === managed) snapshotPlayer(state, player.id);
   if (borrower.id === managed || parentId === managed) {
     addNews(state, {
       category: 'transfer',
@@ -632,17 +642,24 @@ function aiTransferActivity(state: GameState, rng: Rng): void {
     if (target.clubId === state.manager.clubId) {
       if (!rng.chance(0.22 * settings.poachingAggression)) continue;
       const price = askingPrice(state, target, club.id);
+      // A club that spots a release clause below the going rate will simply trigger it.
+      const clause = target.contract?.releaseClause ?? 0;
+      const triggersClause = clause > 0 && clause < price && clause <= club.finances.transferBudget;
       const offer = createTransferOffer(state, target.id, club.id, {
-        fee: roundMoney(price * rng.float(0.85, 1.15)),
-        sellOnPercent: rng.chance(0.3) ? rng.int(5, 20) : 0,
-        instalments: rng.chance(0.4) ? rng.int(1, 3) : 0,
+        fee: triggersClause ? clause : roundMoney(price * rng.float(0.85, 1.15)),
+        sellOnPercent: !triggersClause && rng.chance(0.3) ? rng.int(5, 20) : 0,
+        instalments: !triggersClause && rng.chance(0.4) ? rng.int(1, 3) : 0,
       });
       offer.status = 'pending';
       addNews(state, {
         category: 'transfer',
         important: true,
-        subject: `Bid received for ${target.lastName}`,
-        body: `${club.name} have bid £${formatShort(offer.fee)} for ${target.firstName} ${target.lastName}.${offer.instalments ? ` The fee would be paid over ${offer.instalments + 1} instalments.` : ''}${offer.sellOnPercent ? ` They are offering a ${offer.sellOnPercent}% sell-on clause.` : ''}`,
+        subject: triggersClause
+          ? `${target.lastName}'s release clause triggered`
+          : `Bid received for ${target.lastName}`,
+        body: triggersClause
+          ? `${club.name} have met the £${formatShort(clause)} release clause in ${target.firstName} ${target.lastName}'s contract. You cannot refuse the fee — whether he goes is now down to the player.`
+          : `${club.name} have bid £${formatShort(offer.fee)} for ${target.firstName} ${target.lastName}.${offer.instalments ? ` The fee would be paid over ${offer.instalments + 1} instalments.` : ''}${offer.sellOnPercent ? ` They are offering a ${offer.sellOnPercent}% sell-on clause.` : ''}`,
         action: { kind: 'transfer-offer', offerId: offer.id },
         relatedPlayerId: target.id,
         relatedClubId: club.id,

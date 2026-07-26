@@ -11,7 +11,7 @@ import { seasonStatsFor } from './players';
 import { rollInjury, describeLayoff } from './injuries';
 import { applyResultToTable } from './table';
 import { addNews } from './news';
-import { creditMatchdayIncome } from './finance';
+import { creditMatchdayIncome, recordTransaction } from './finance';
 import { settingsFor } from './difficulty';
 
 /** Yellow cards needed for a one-match ban, as per the English game. */
@@ -102,6 +102,18 @@ function applyTeam(
   const isHuman = club.isPlayerControlled;
 
   const participants = [...team.onPitch, ...team.bench].filter((mp) => mp.minutesPlayed > 0);
+
+  // Contract bonuses are real money: appearance fees for everyone who featured, goal bonuses per
+  // goal. Paid for every club symmetrically, so the market prices them fairly.
+  let bonuses = 0;
+  for (const mp of participants) {
+    const contract = state.players[mp.player.id]?.contract;
+    if (!contract) continue;
+    bonuses += contract.appearanceFee + contract.goalBonus * mp.goals;
+  }
+  if (bonuses > 0) {
+    recordTransaction(state, club.id, 'Bonuses', 'Appearance and goal bonuses', -Math.round(bonuses));
+  }
 
   for (const mp of participants) {
     const player = state.players[mp.player.id];

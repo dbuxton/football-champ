@@ -5,25 +5,34 @@
 import { useMemo, useState } from 'react';
 import { useGame } from '../GameContext';
 import { getClub, squadOf } from '../../engine/gamestate';
-import { ageOf, totalStats } from '../../engine/players';
+import { ageOf, averageForm, conditionCurve, totalStats } from '../../engine/players';
 import { Player } from '../../engine/types';
 import { squadMorale } from '../../engine/progression';
+import { ownPlayerStars } from '../../engine/scouting';
 import { wageBill } from '../../engine/finance';
 import { setTransferStatus } from '../../game/actions';
 import { pickTeamAutomatically } from '../../game/actions';
 import {
-  Attr, DataTable, Panel, Tabs, money, squadColumns, Column, exactMoney,
+  Attr, DataTable, DevArrow, MoraleDot, Panel, Tabs, money, squadColumns, Column, exactMoney,
+  playerStatusIcon, stars,
 } from '../components';
 import {
   TECHNICAL_KEYS, MENTAL_KEYS, PHYSICAL_KEYS, GOALKEEPING_KEYS, ATTRIBUTE_LABELS,
 } from '../../engine/types';
 
-type View = 'general' | 'technical' | 'mental' | 'physical' | 'goalkeeping' | 'contracts';
+type View = 'selection' | 'general' | 'technical' | 'mental' | 'physical' | 'goalkeeping' | 'contracts';
 type Filter = 'senior' | 'u21' | 'loan' | 'injured';
+
+/** How ready a player is to perform at his own level: condition, sharpness and mood combined. */
+function readiness(player: Player): number {
+  const sharpness = 0.82 + 0.18 * (player.matchSharpness / 100);
+  const morale = 0.9 + 0.2 * (player.morale / 100);
+  return Math.min(100, Math.round(conditionCurve(player.condition) * sharpness * morale * 100));
+}
 
 export function SquadScreen() {
   const { state, refresh, inspectPlayer, showToast } = useGame();
-  const [view, setView] = useState<View>('general');
+  const [view, setView] = useState<View>('selection');
   const [filter, setFilter] = useState<Filter>('senior');
   const club = getClub(state, state.manager.clubId);
 
@@ -69,6 +78,111 @@ export function SquadScreen() {
       }));
 
     switch (view) {
+      case 'selection': {
+        const xiIds = new Set(club.tactics.slots.map((s) => s.playerId).filter(Boolean) as string[]);
+        const benchIds = new Set(club.tactics.bench.filter(Boolean) as string[]);
+        return [
+          {
+            key: 'xi', label: '', numeric: false,
+            sort: (p) => (xiIds.has(p.id) ? 0 : benchIds.has(p.id) ? 1 : 2),
+            render: (p) => xiIds.has(p.id)
+              ? <span className="pos strong" title="In the starting XI">XI</span>
+              : benchIds.has(p.id)
+                ? <span className="muted" title="On the bench">SUB</span>
+                : null,
+          },
+          {
+            key: 'name', label: 'Name',
+            sort: (p) => p.lastName,
+            render: (p) => (
+              <span className="row" style={{ gap: 5 }}>
+                {playerStatusIcon(p)}
+                <span>{p.firstName ? `${p.firstName} ${p.lastName}` : p.lastName}</span>
+              </span>
+            ),
+          },
+          {
+            key: 'pos', label: 'Pos',
+            sort: (p) => p.naturalPosition,
+            render: (p) => <span className="pos strong">{p.naturalPosition}</span>,
+          },
+          {
+            key: 'age', label: 'Age', numeric: true,
+            sort: (p) => ageOf(p, state.date),
+            render: (p) => ageOf(p, state.date),
+          },
+          {
+            key: 'ca', label: 'Ability', numeric: true,
+            sort: (p) => p.currentAbility,
+            title: 'Relative to the division — three stars is par for the level',
+            render: (p) => (
+              <span className="gold small" title={`Ability relative to the division`}>
+                {stars(ownPlayerStars(state, p).stars)}
+              </span>
+            ),
+          },
+          {
+            key: 'pa', label: 'Potential', numeric: true,
+            sort: (p) => p.potentialAbility,
+            render: (p) => (
+              <span className="small faint">{stars(ownPlayerStars(state, p).potentialStars)}</span>
+            ),
+          },
+          {
+            key: 'form', label: 'Form', numeric: true,
+            sort: (p) => averageForm(p),
+            title: 'Average rating over the last six matches',
+            render: (p) => {
+              const form = averageForm(p);
+              if (!form) return <span className="faint">—</span>;
+              return (
+                <span className={form >= 7.2 ? 'pos strong' : form < 6.2 ? 'neg' : ''}>
+                  {form.toFixed(1)}
+                </span>
+              );
+            },
+          },
+          {
+            key: 'morale', label: 'Mood', numeric: true,
+            sort: (p) => p.morale,
+            render: (p) => <MoraleDot value={p.morale} />,
+          },
+          {
+            key: 'ready', label: 'Ready', numeric: true,
+            sort: (p) => readiness(p),
+            title: 'Condition, match sharpness and mood combined — how much of his ability you get on Saturday',
+            render: (p) => {
+              const value = readiness(p);
+              return (
+                <span
+                  className={value >= 90 ? 'pos' : value < 75 ? 'warn' : ''}
+                  title={`Condition ${Math.round(p.condition)}% · sharpness ${Math.round(p.matchSharpness)}% · morale ${Math.round(p.morale)}`}
+                >
+                  {value}%
+                </span>
+              );
+            },
+          },
+          {
+            key: 'dev', label: 'Dev', numeric: false,
+            title: 'Development since the season started',
+            render: (p) => <DevArrow state={state} playerId={p.id} />,
+          },
+          {
+            key: 'contract', label: 'Contract',
+            sort: (p) => p.contract?.expires ?? '',
+            render: (p) => {
+              if (!p.contract) return <span className="faint">—</span>;
+              const months = (new Date(p.contract.expires).getTime() - new Date(state.date).getTime()) /
+                (86_400_000 * 30.44);
+              if (p.transferListed) return <span className="pill pill--warn">Listed</span>;
+              if (months < 6) return <span className="pill pill--bad">{Math.max(0, Math.round(months))} mth left</span>;
+              if (months < 12) return <span className="pill pill--warn">Under a year</span>;
+              return <span className="muted small">{p.contract.expires.slice(0, 4)}</span>;
+            },
+          },
+        ];
+      }
       case 'technical': return [...identity, ...attributeColumns(TECHNICAL_KEYS)];
       case 'mental': return [...identity, ...attributeColumns(MENTAL_KEYS)];
       case 'physical': return [...identity, ...attributeColumns(PHYSICAL_KEYS)];
@@ -146,7 +260,7 @@ export function SquadScreen() {
       default:
         return squadColumns(state, { showValue: true, showWage: true });
     }
-  }, [view, state, refresh, showToast]);
+  }, [view, state, refresh, showToast, club]);
 
   const bill = wageBill(state, club.id);
 
@@ -184,7 +298,8 @@ export function SquadScreen() {
         />
         <Tabs
           tabs={[
-            { id: 'general', label: 'General' },
+            { id: 'selection', label: 'Selection' },
+            { id: 'general', label: 'Statistics' },
             { id: 'technical', label: 'Technical' },
             { id: 'mental', label: 'Mental' },
             { id: 'physical', label: 'Physical' },
@@ -199,7 +314,9 @@ export function SquadScreen() {
           rows={filtered}
           rowKey={(p) => p.id}
           onRowClick={(p) => inspectPlayer(p.id)}
-          defaultSort={{ key: view === 'general' ? 'ca' : 'name', desc: view === 'general' }}
+          defaultSort={view === 'selection'
+            ? { key: 'ca', desc: true }
+            : { key: view === 'general' ? 'ca' : 'name', desc: view === 'general' }}
           maxHeight={560}
           emptyMessage="No players in this view."
         />

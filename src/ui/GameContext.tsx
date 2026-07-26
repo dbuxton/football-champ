@@ -8,6 +8,7 @@
 
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { GameState } from '../engine/gamestate';
+import { AdvanceDigest } from '../game/loop';
 import { UiSettings, DEFAULT_SETTINGS, loadSettings, saveSettings, autosave } from '../game/save';
 
 export type Screen =
@@ -30,6 +31,12 @@ interface GameContextValue {
   showToast: (message: string, error?: boolean) => void;
   settings: UiSettings;
   updateSettings: (changes: Partial<UiSettings>) => void;
+  /** News ids that halted the last advance — the inbox highlights and auto-opens them. */
+  focusNewsIds: string[] | null;
+  setFocusNews: (ids: string[] | null) => void;
+  /** What happened during the last advance, shown as a strip on Home until dismissed. */
+  digest: AdvanceDigest | null;
+  setDigest: (digest: AdvanceDigest | null) => void;
   /** Version counter — components can depend on it to memoise expensive derivations. */
   version: number;
 }
@@ -49,6 +56,8 @@ export function GameProvider({
   const [inspectedPlayerId, setInspected] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null);
   const [settings, setSettings] = useState<UiSettings>(() => loadSettings());
+  const [focusNewsIds, setFocusNews] = useState<string[] | null>(null);
+  const [digest, setDigest] = useState<AdvanceDigest | null>(null);
   const toastTimer = useRef<number | null>(null);
 
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
@@ -86,8 +95,13 @@ export function GameProvider({
     showToast,
     settings,
     updateSettings,
+    focusNewsIds,
+    setFocusNews,
+    digest,
+    setDigest,
     version,
-  }), [refresh, replace, screen, inspectedPlayerId, inspectPlayer, toast, showToast, settings, updateSettings, version]);
+  }), [refresh, replace, screen, inspectedPlayerId, inspectPlayer, toast, showToast, settings,
+    updateSettings, focusNewsIds, digest, version]);
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
 }

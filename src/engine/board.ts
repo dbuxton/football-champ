@@ -6,14 +6,16 @@
  */
 
 import { Rng, clamp, deriveSeed } from './rng';
-import { addDaysISO } from './date';
-import { BoardExpectation, Club } from './types';
-import { BoardRequest, GameState, getClub, squadOf } from './gamestate';
+import { addDaysISO, seasonLabel } from './date';
+import { BoardExpectation, Club, SeasonObjective } from './types';
+import { BoardRequest, GameState, getClub } from './gamestate';
 import { positionOf, tableFor, effectivePoints } from './table';
 import { addNews } from './news';
 import { recordTransaction, wageBill, rollingLoss } from './finance';
 import { settingsFor } from './difficulty';
 import { nextId } from './players';
+import { attentionItems } from './attention';
+import { PS_ALLOWABLE_LOSS_3_YEARS } from '../data/competitions';
 
 /** Where in the table the board expects to be, as a fraction of the division. */
 function targetPosition(expectation: BoardExpectation, divisionSize: number): number {
@@ -125,6 +127,121 @@ export function sackManager(state: GameState): void {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Season objectives
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Concrete targets for the season scoreboard: the league expectation, a cup run scaled to the
+ * club's standing, and — when the accounts are tight — staying inside the P&S limits.
+ */
+export function deriveObjectivesFromExpectation(state: GameState): SeasonObjective[] {
+  const club = state.clubs[state.manager.clubId];
+  if (!club) return [];
+  const comp = state.competitions[club.leagueId];
+  if (!comp) return [];
+
+  const objectives: SeasonObjective[] = [{
+    kind: 'league',
+    label: club.board.expectation,
+    competitionId: comp.id,
+    targetPosition: targetPosition(club.board.expectation, comp.clubIds.length),
+    status: 'on-track',
+  }];
+
+  // A cup run the board would consider creditable, measured from where the club enters.
+  const faCup = state.cups['fa-cup'];
+  if (faCup) {
+    const entryRound = comp.tier <= 2 ? 2 : 0;
+    const extraRounds = club.reputation >= 60 ? 3 : club.reputation >= 40 ? 2 : 1;
+    const targetRound = Math.min(entryRound + extraRounds, faCup.roundNames.length - 2);
+    objectives.push({
+      kind: 'cup',
+      label: `Reach the FA Cup ${(faCup.roundNames[targetRound] ?? 'later rounds').toLowerCase()}`,
+      competitionId: 'fa-cup',
+      targetRound,
+      status: 'on-track',
+    });
+  }
+
+  // Only set a finance objective when the P&S position is genuinely tight.
+  if (comp.tier === 2 && projectedRollingLoss(state, club) > PS_ALLOWABLE_LOSS_3_YEARS * 0.5) {
+    objectives.push({
+      kind: 'finance',
+      label: 'Keep losses inside P&S limits',
+      status: 'on-track',
+    });
+  }
+
+  return objectives;
+}
+
+/** Set (or reset) the managed club's objectives; called at each season rollover. */
+export function setSeasonObjectives(state: GameState): void {
+  const club = getClub(state, state.manager.clubId);
+  club.board.objectives = deriveObjectivesFromExpectation(state);
+}
+
+/** Rolling three-season loss with the current, unclosed season included pro rata. */
+function projectedRollingLoss(state: GameState, club: Club): number {
+  const closed = club.finances.seasonProfits.slice(-2);
+  const currentProfit = club.finances.ledger
+    .filter((e) => seasonLabel(e.date) === state.season)
+    .reduce((sum, e) => sum + e.amount, 0);
+  const total = closed.reduce((sum, p) => sum + p.profit, 0) + currentProfit;
+  return total < 0 ? -total : 0;
+}
+
+/**
+ * Weekly objective assessment. League status tracks position against target; cup status settles
+ * when the club is eliminated or lifts the trophy; finance tracks the projected P&S position.
+ * A cup or finance objective settling moves board confidence a couple of points, no more — the
+ * league expectation remains the thing that gets managers sacked.
+ */
+export function assessObjectives(state: GameState): void {
+  const club = getClub(state, state.manager.clubId);
+  const objectives = club.board.objectives;
+  if (!objectives) return;
+
+  for (const objective of objectives) {
+    const before = objective.status;
+    if (objective.status === 'met' || objective.status === 'failed') continue;
+
+    if (objective.kind === 'league' && objective.competitionId && objective.targetPosition) {
+      const table = tableFor(state, objective.competitionId);
+      const row = table.find((r) => r.clubId === club.id);
+      if (!row || row.played < 6) continue;
+      const position = table.findIndex((r) => r.clubId === club.id) + 1;
+      objective.status = position <= objective.targetPosition + 3 ? 'on-track' : 'behind';
+    }
+
+    if (objective.kind === 'cup' && objective.competitionId && objective.targetRound !== undefined) {
+      const cup = state.cups[objective.competitionId];
+      if (!cup) continue;
+      if (cup.winnerClubId === club.id) {
+        objective.status = 'met';
+      } else if (cup.remainingClubIds.includes(club.id)) {
+        objective.status = cup.currentRound >= objective.targetRound ? 'met' : 'on-track';
+      } else {
+        const out = cup.eliminatedInRound[club.id];
+        if (out !== undefined) objective.status = out >= objective.targetRound ? 'met' : 'failed';
+      }
+    }
+
+    if (objective.kind === 'finance') {
+      objective.status = projectedRollingLoss(state, club) > PS_ALLOWABLE_LOSS_3_YEARS
+        ? 'behind'
+        : 'on-track';
+    }
+
+    // Settling a secondary objective nudges confidence, gently.
+    if (before !== objective.status && objective.kind !== 'league') {
+      if (objective.status === 'met') club.board.confidence = clamp(club.board.confidence + 2, 0, 100);
+      if (objective.status === 'failed') club.board.confidence = clamp(club.board.confidence - 2, 0, 100);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Board requests
 // ---------------------------------------------------------------------------------------------
 
@@ -185,7 +302,7 @@ export function makeBoardRequest(
       category: 'board',
       subject: 'Board request declined',
       body: request.reason,
-      action: { kind: 'board-request-response', approved: false },
+      action: { kind: 'acknowledge' },
     });
     return { approved: false, reason: request.reason };
   }
@@ -209,7 +326,7 @@ function applyApprovedRequest(
         important: true,
         subject: 'Transfer budget increased',
         body: `The board has released a further £${(amount / 1_000_000).toFixed(2)}m for transfers. Your budget is now £${(club.finances.transferBudget / 1_000_000).toFixed(2)}m.`,
-        action: { kind: 'board-request-response', approved: true },
+        action: { kind: 'acknowledge' },
       });
       break;
 
@@ -220,7 +337,7 @@ function applyApprovedRequest(
         important: true,
         subject: 'Wage budget increased',
         body: `Your weekly wage budget has been raised by £${amount.toLocaleString()} to £${club.finances.wageBudget.toLocaleString()}.`,
-        action: { kind: 'board-request-response', approved: true },
+        action: { kind: 'acknowledge' },
       });
       break;
 
@@ -241,7 +358,7 @@ function applyApprovedRequest(
         important: true,
         subject: 'Stadium expansion approved',
         body: `Work will begin on expanding ${club.stadiumName} by ${added.toLocaleString()} seats at a cost of £${(amount / 1_000_000).toFixed(1)}m. Completion is expected in around ${Math.round((240 + added / 40) / 30)} months.`,
-        action: { kind: 'board-request-response', approved: true },
+        action: { kind: 'acknowledge' },
       });
       break;
     }
@@ -263,7 +380,7 @@ function applyApprovedRequest(
         important: true,
         subject: 'New stadium approved',
         body: `The board has committed £${(amount / 1_000_000).toFixed(0)}m to a new ${capacity.toLocaleString()}-capacity stadium. Construction will take around three years.`,
-        action: { kind: 'board-request-response', approved: true },
+        action: { kind: 'acknowledge' },
       });
       break;
     }
@@ -284,7 +401,7 @@ function applyApprovedRequest(
         important: true,
         subject: 'Training ground upgrade approved',
         body: `£${(amount / 1_000_000).toFixed(1)}m has been allocated to redevelop the training ground. Work should complete within six months.`,
-        action: { kind: 'board-request-response', approved: true },
+        action: { kind: 'acknowledge' },
       });
       break;
 
@@ -304,7 +421,7 @@ function applyApprovedRequest(
         important: true,
         subject: 'Youth academy investment approved',
         body: `£${(amount / 1_000_000).toFixed(1)}m will be invested in the academy. The benefits will take a few seasons to show in the intake.`,
-        action: { kind: 'board-request-response', approved: true },
+        action: { kind: 'acknowledge' },
       });
       break;
 
@@ -313,7 +430,7 @@ function applyApprovedRequest(
         category: 'board',
         subject: 'Feeder club arrangement agreed',
         body: 'The board has agreed a feeder club arrangement, giving you somewhere to send young players for competitive football.',
-        action: { kind: 'board-request-response', approved: true },
+        action: { kind: 'acknowledge' },
       });
       break;
   }
@@ -359,11 +476,25 @@ export function endOfSeasonReview(state: GameState): void {
         ? 'The board is disappointed but accepts there were mitigating factors.'
         : 'The board is deeply unhappy with how the season went.';
 
+  // Settle the objective scoreboard for the review.
+  assessObjectives(state);
+  const objectiveLines = (club.board.objectives ?? []).map((objective) => {
+    if (objective.kind === 'league') {
+      objective.status = met ? 'met' : 'failed';
+    } else if (objective.status === 'on-track') {
+      // An unfinished secondary objective at season end counts as met — nothing went wrong.
+      objective.status = 'met';
+    } else if (objective.status === 'behind') {
+      objective.status = 'failed';
+    }
+    return `${objective.label}: ${objective.status === 'met' ? 'achieved' : 'missed'}.`;
+  });
+
   addNews(state, {
     category: 'board',
     important: true,
     subject: 'End of season review',
-    body: `You finished ${ordinal(position)} in the ${comp.name} on ${row ? effectivePoints(row) : 0} points. The board's expectation was to ${club.board.expectation.toLowerCase()}. ${verdict}`,
+    body: `You finished ${ordinal(position)} in the ${comp.name} on ${row ? effectivePoints(row) : 0} points. The board's expectation was to ${club.board.expectation.toLowerCase()}. ${verdict}${objectiveLines.length ? ` ${objectiveLines.join(' ')}` : ''}`,
   });
 
   // Next season's expectation is set from where you actually finished.
@@ -439,25 +570,13 @@ export function setSeasonBudgets(state: GameState, clubId: string): void {
   }
 }
 
-/** Squad size warnings, part of the forgiving-of-mistakes remit. */
+/**
+ * Squad warnings, part of the forgiving-of-mistakes remit. Now a thin view over the attention
+ * system so the header pill and the Home panel can never disagree.
+ */
 export function squadWarnings(state: GameState, clubId: string): string[] {
-  const club = getClub(state, clubId);
-  const squad = squadOf(state, clubId);
-  const warnings: string[] = [];
-
-  if (squad.length < 16) {
-    warnings.push(`Your squad has only ${squad.length} players. You risk being unable to field a side.`);
-  }
-  const keepers = squad.filter((p) => p.naturalPosition === 'GK' && !p.injury);
-  if (keepers.length < 2) {
-    warnings.push('You have fewer than two fit goalkeepers.');
-  }
-  const bill = wageBill(state, clubId);
-  if (bill > club.finances.wageBudget) {
-    warnings.push(`Your wage bill of £${bill.toLocaleString()} exceeds the budget of £${club.finances.wageBudget.toLocaleString()}.`);
-  }
-  if (club.finances.balance < 0) {
-    warnings.push(`The club is £${Math.abs(Math.round(club.finances.balance)).toLocaleString()} in the red.`);
-  }
-  return warnings;
+  if (clubId !== state.manager.clubId) return [];
+  return attentionItems(state)
+    .filter((item) => item.severity === 'warn')
+    .map((item) => item.label);
 }

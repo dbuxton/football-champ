@@ -26,6 +26,8 @@ import { IndividualFocus, TrainingState } from '../engine/gamestate';
 import { computeValue } from '../engine/players';
 import { snapshot, restore } from './save';
 import { makeBoardRequest } from '../engine/board';
+import { ROLE_CAPS, roleCapReached, staffWageDemand } from '../engine/staffmarket';
+import { addDaysISO } from '../engine/date';
 
 // ---------------------------------------------------------------------------------------------
 // Undo guardrail
@@ -97,6 +99,18 @@ export function setSlotRole(state: GameState, slotIndex: number, role: string): 
   const club = getClub(state, state.manager.clubId);
   const slots = club.tactics.slots.map((s, i) =>
     i === slotIndex ? { ...s, role: role as Tactics['slots'][number]['role'] } : s);
+  club.tactics = { ...club.tactics, slots };
+}
+
+export function setSlotInstruction(
+  state: GameState,
+  slotIndex: number,
+  key: keyof Tactics['slots'][number]['instructions'],
+  value: string,
+): void {
+  const club = getClub(state, state.manager.clubId);
+  const slots = club.tactics.slots.map((s, i) =>
+    i === slotIndex ? { ...s, instructions: { ...s.instructions, [key]: value } } : s);
   club.tactics = { ...club.tactics, slots };
 }
 
@@ -216,6 +230,14 @@ export function respondToIncomingBid(state: GameState, offerId: string, accept: 
   if (!player) return { ok: false, message: 'Unknown player.' };
 
   if (!accept) {
+    // A bid meeting the release clause cannot be turned down — that is what the clause is for.
+    const clause = player.contract?.releaseClause ?? 0;
+    if (clause > 0 && offer.fee >= clause) {
+      return {
+        ok: false,
+        message: `The bid meets ${player.lastName}'s £${clause.toLocaleString()} release clause — you cannot refuse the fee. Whether he goes is up to him.`,
+      };
+    }
     offer.status = 'rejected';
     // Turning down good money for an unsettled player makes him unhappier still.
     if (player.morale < 45) player.morale = Math.max(5, player.morale - 6);
@@ -410,6 +432,36 @@ export function assignScoutTo(
 
 export function recallScout(state: GameState, scoutId: string): void {
   unassignScout(state, scoutId);
+}
+
+/** Appoint a free-agent member of staff. The other half of the market sackStaff created. */
+export function hireStaff(state: GameState, staffId: string): BidResult {
+  const club = getClub(state, state.manager.clubId);
+  const member = state.staff[staffId];
+  if (!member || member.clubId) return { ok: false, message: 'That person is not available.' };
+  if (roleCapReached(state, club.id, member.role)) {
+    return {
+      ok: false,
+      message: `You already carry a full complement in that role (${ROLE_CAPS[member.role]}). Dismiss somebody first.`,
+    };
+  }
+  if (club.finances.balance < 0) {
+    return { ok: false, message: 'The board will not sanction new appointments while the club is in the red.' };
+  }
+
+  const wage = staffWageDemand(state, member);
+  recordUndo(state, `Hire ${member.shortName}`);
+  member.clubId = club.id;
+  member.wage = wage;
+  member.contractExpires = addDaysISO(state.date, 730);
+  member.assignment = null;
+  club.staffIds.push(member.id);
+  addNews(state, {
+    category: 'staff',
+    subject: `${member.shortName} joins the staff`,
+    body: `${member.firstName} ${member.lastName} has been appointed ${member.role} on £${wage.toLocaleString()} per week, on a two-year deal.`,
+  });
+  return { ok: true, message: `${member.shortName} has been appointed ${member.role}.` };
 }
 
 export function sackStaff(state: GameState, staffId: string): BidResult {

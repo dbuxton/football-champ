@@ -14,10 +14,10 @@
 import { Rng, clamp } from './rng';
 import {
   CommentaryLine, Fixture, MatchEvent, MatchResult, MatchTeamStats, Player, Position,
-  POSITION_COORDS, Tactics, Weather,
+  POSITION_COORDS, TacticSlot, Tactics, Weather,
 } from './types';
 import { GameState, getClub } from './gamestate';
-import { matchEffectiveness, isAvailable } from './players';
+import { baseEffectiveness, conditionCurve, matchEffectiveness, isAvailable } from './players';
 import { ROLE_PROFILES, mentalityValue, formationByName } from './formations';
 import { line, pickReferee } from './commentary';
 import { settingsFor, guardrailBoost, DifficultySettings } from './difficulty';
@@ -30,6 +30,8 @@ export interface MatchPlayer {
   player: Player;
   position: Position;
   role: string;
+  /** Per-player instructions from the tactic slot this player occupies. */
+  instructions: TacticSlot['instructions'];
   /** 0..1 contribution, recomputed as condition drains. */
   effectiveness: number;
   /** Condition within this match, starts at the player's current condition. */
@@ -76,6 +78,15 @@ interface TeamStrength {
   discipline: number;
 }
 
+function cloneTactics(tactics: Tactics): Tactics {
+  return {
+    ...tactics,
+    slots: tactics.slots.map((s) => ({ ...s, instructions: { ...s.instructions } })),
+    bench: [...tactics.bench],
+    setPieces: { ...tactics.setPieces },
+  };
+}
+
 function emptyStats(): MatchTeamStats {
   return {
     shots: 0, shotsOnTarget: 0, possession: 50, corners: 0, fouls: 0, offsides: 0,
@@ -87,12 +98,22 @@ function emptyStats(): MatchTeamStats {
 // Team construction
 // ---------------------------------------------------------------------------------------------
 
-function buildMatchPlayer(player: Player, position: Position, role: string): MatchPlayer {
+function defaultInstructions(): TacticSlot['instructions'] {
+  return { forwardRuns: 'Mixed', longShots: 'Mixed', crossBall: 'Mixed', throughBalls: 'Mixed', tackling: 'Normal' };
+}
+
+function buildMatchPlayer(
+  player: Player,
+  position: Position,
+  role: string,
+  instructions: TacticSlot['instructions'] = defaultInstructions(),
+): MatchPlayer {
   return {
     player,
     position,
     role,
-    effectiveness: matchEffectiveness(player, position),
+    instructions: { ...instructions },
+    effectiveness: baseEffectiveness(player, position) * conditionCurve(player.condition),
     condition: player.condition,
     onPitch: false,
     minutesPlayed: 0,
@@ -133,8 +154,11 @@ function tacticalModifiers(tactics: Tactics) {
     aerial: tactics.width === 'Wide' ? 1.12 : tactics.width === 'Narrow' ? 0.9 : 1,
     // Aggressive tackling wins the ball back more often, at the cost of cards.
     tackling: { Cautious: 0.9, Normal: 1, Hard: 1.12 }[tactics.tackling],
+    // Man marking is tighter but concedes more fouls; zonal defends set pieces better.
     cardRisk: { Cautious: 0.7, Normal: 1, Hard: 1.45 }[tactics.tackling] *
-      (tactics.pressing === 'Gegenpress' ? 1.2 : 1),
+      (tactics.pressing === 'Gegenpress' ? 1.2 : 1) *
+      (tactics.marking === 'Man' ? 1.08 : 1),
+    marking: tactics.marking === 'Man' ? 1.03 : 1,
     counter: tactics.counterAttack ? 1.08 : 1,
     offsideTrap: tactics.offsideTrap,
     timeWasting: tactics.timeWasting / 20,
@@ -152,7 +176,8 @@ function computeStrength(team: MatchTeam): TeamStrength {
   for (const mp of team.onPitch) {
     if (!mp.onPitch || mp.red) continue;
     const profile = ROLE_PROFILES[mp.role as keyof typeof ROLE_PROFILES] ?? ROLE_PROFILES['Box to Box'];
-    const eff = mp.effectiveness * (0.55 + 0.45 * (mp.condition / 100));
+    // Condition is already inside `effectiveness` (via conditionCurve); do not count it again.
+    const eff = mp.effectiveness;
     const attrs = mp.player.attributes;
 
     if (mp.position === 'GK') {
@@ -174,15 +199,33 @@ function computeStrength(team: MatchTeam): TeamStrength {
     strength.buildUp += eff * profile.buildUp * (attrs.passing + attrs.technique + attrs.composure) / 3 / 20;
     strength.creation += eff * profile.creation * (attrs.creativity + attrs.passing + attrs.dribbling + attrs.flair) / 4 / 20;
     strength.finishing += eff * profile.finishing * (attrs.finishing + attrs.composure + attrs.offTheBall) / 3 / 20;
-    strength.aerial += eff * (attrs.jumping + attrs.heading + mp.player.height / 12) / 3 / 20;
+    // Wide roles and players told to cross feed the aerial threat.
+    const crossFactor = { Rarely: 0.9, Mixed: 1, Often: 1.15 }[mp.instructions.crossBall] *
+      (0.85 + profile.width * 0.15);
+    strength.aerial += eff * crossFactor * (attrs.jumping + attrs.heading + mp.player.height / 12) / 3 / 20;
     strength.discipline += (20 - attrs.dirtiness) / 20 + attrs.aggression / 40;
   }
 
-  strength.defence *= mods.defence * mods.tackling;
+  strength.defence *= mods.defence * mods.tackling * mods.marking;
   strength.creation *= mods.attack;
   strength.finishing *= mods.attack;
   strength.aerial *= mods.aerial;
   strength.midfield *= 1 + (mods.attack - 1) * 0.3;
+
+  // A respected captain lifts the whole side a little; the vice-captain deputises.
+  const onPitchLeader = (id: string | null) =>
+    id ? team.onPitch.find((mp) => mp.onPitch && !mp.red && mp.player.id === id) : undefined;
+  const captain = onPitchLeader(team.tactics.setPieces.captain) ??
+    onPitchLeader(team.tactics.setPieces.viceCaptain);
+  if (captain) {
+    const lift = 1 + (captain.player.attributes.influence - 10) * 0.003;
+    strength.defence *= lift;
+    strength.midfield *= lift;
+    strength.buildUp *= lift;
+    strength.creation *= lift;
+    strength.finishing *= lift;
+    strength.aerial *= lift;
+  }
 
   // A keeper of zero means somebody outfield is in goal — punish it, but don't make it fatal.
   if (strength.keeper === 0) strength.keeper = 0.22;
@@ -225,6 +268,8 @@ function weatherModifier(weather: Weather | undefined): { quality: number; error
 // The simulation
 // ---------------------------------------------------------------------------------------------
 
+export type TeamTalk = 'calm' | 'motivate' | 'demand' | 'none';
+
 export interface MatchOptions {
   /** Allow extra time and penalties when the tie needs a winner. */
   needsWinner?: boolean;
@@ -232,6 +277,8 @@ export interface MatchOptions {
   aggregate?: { home: number; away: number };
   /** Consecutive league defeats for the human, feeding the Easy-mode guardrail. */
   humanDefeatStreak?: number;
+  /** The human manager's pre-match team talk. Only applies to their own side. */
+  teamTalk?: TeamTalk;
 }
 
 export class MatchSim {
@@ -298,7 +345,7 @@ export class MatchSim {
       const position = formation.slots[index] ?? slot.position;
       const player = slot.playerId ? state.players[slot.playerId] : null;
       if (!player || !isAvailable(player)) return;
-      const mp = buildMatchPlayer(player, position, slot.role);
+      const mp = buildMatchPlayer(player, position, slot.role, slot.instructions);
       mp.onPitch = true;
       onPitch.push(mp);
     });
@@ -318,12 +365,31 @@ export class MatchSim {
 
     const guardrail = isHuman ? guardrailBoost(settings, options.humanDefeatStreak ?? 0) : 1;
 
+    // The team talk. Motivating sharpens the attack, calming steadies the defence; making
+    // demands is a gamble that pays off only if the dressing room can handle the pressure.
+    let talkAttack = 1;
+    let talkDefence = 1;
+    if (isHuman && options.teamTalk && options.teamTalk !== 'none' && onPitch.length > 0) {
+      if (options.teamTalk === 'motivate') {
+        talkAttack = 1.03;
+      } else if (options.teamTalk === 'calm') {
+        talkDefence = 1.03;
+      } else {
+        const avgPressure = onPitch.reduce((sum, mp) => sum + mp.player.attributes.pressure, 0) /
+          onPitch.length;
+        const responds = this.rng.chance(clamp(avgPressure / 20, 0.35, 0.8));
+        talkAttack = responds ? 1.04 : 0.97;
+        talkDefence = responds ? 1.04 : 0.97;
+      }
+    }
+
     return {
       clubId,
       name: club.name,
       shortName: club.shortName,
       colors: club.colors,
-      tactics: club.tactics,
+      // A deep copy: in-match tactical changes must never rewrite the club's saved tactics.
+      tactics: cloneTactics(club.tactics),
       onPitch,
       bench,
       stats: emptyStats(),
@@ -331,8 +397,8 @@ export class MatchSim {
       isHuman,
       strength: { defence: 0, midfield: 0, buildUp: 0, creation: 0, finishing: 0, aerial: 0, keeper: 0, discipline: 0 },
       bias: {
-        attack: homeAttack * (isHuman ? settings.attackBonus * guardrail : 1),
-        defence: homeDefence * (isHuman ? settings.defenceBonus : 1),
+        attack: homeAttack * talkAttack * (isHuman ? settings.attackBonus * guardrail : 1),
+        defence: homeDefence * talkDefence * (isHuman ? settings.defenceBonus : 1),
         conversion: isHuman ? settings.conversionBonus : 0,
       },
     };
@@ -361,6 +427,19 @@ export class MatchSim {
       this.halfTimeRecovery();
     }
 
+    // The fourth official's board at ninety: a side protecting a lead that wastes time gets the
+    // clock run down; the trade-off is the chance-killing and foul-count effects below.
+    if (this.minute === 90 && !this.inExtraTime && this.addedTime === 0) {
+      let added = this.rng.int(2, 5);
+      const leader = this.homeGoals > this.awayGoals ? this.home
+        : this.awayGoals > this.homeGoals ? this.away : null;
+      if (leader) added -= Math.round(tacticalModifiers(leader.tactics).timeWasting * 2);
+      this.addedTime = Math.max(1, added);
+      this.push(90, 'chance', 'neutral',
+        `The board goes up: ${this.addedTime} added minute${this.addedTime > 1 ? 's' : ''}.`,
+        { x: 0.5, y: 0.5 }, false);
+    }
+
     if (this.minute > this.regulationEnd + this.addedTime) {
       this.endOfPeriod();
       return;
@@ -368,6 +447,17 @@ export class MatchSim {
 
     this.simulateMinute();
     this.aiSubstitutions();
+  }
+
+  /**
+   * Apply a mid-match tactical change. Strength refreshes immediately, so the change takes
+   * effect from the next minute — and, because the team holds a private copy of the tactics,
+   * the club's saved setup is untouched.
+   */
+  updateTactics(side: 'home' | 'away', changes: Partial<Tactics>): void {
+    const team = side === 'home' ? this.home : this.away;
+    Object.assign(team.tactics, changes);
+    refreshStrength(team);
   }
 
   /** Run the whole match, including extra time and penalties if required. */
@@ -414,9 +504,11 @@ export class MatchSim {
   private finish(): void {
     this.finished = true;
     this.push(this.regulationEnd, 'full-time', 'neutral', line(this.rng, 'fullTime', this.scoreVars()), { x: 0.5, y: 0.5 }, true);
+    // Minutes accrue per player in `drainCondition`, so a late substitute is credited only the
+    // minutes actually played. Cap at the regulation length so added time doesn't inflate totals.
     for (const team of [this.home, this.away]) {
-      for (const mp of team.onPitch) {
-        if (mp.onPitch && !mp.red) mp.minutesPlayed = Math.min(this.regulationEnd, this.minute);
+      for (const mp of [...team.onPitch, ...team.bench]) {
+        mp.minutesPlayed = Math.min(this.regulationEnd, mp.minutesPlayed);
       }
     }
     const total = Math.max(1, this.totalPossessionMinutes);
@@ -473,11 +565,23 @@ export class MatchSim {
       defending.bias.defence;
 
     // Calibrated so a league season lands near the real rates: ~24 shots and ~2.7 goals a game.
-    const chanceProb = clamp(
-      0.58 * (attackPower / Math.max(0.5, attackPower + defencePower * 0.95)),
+    let chanceProb = clamp(
+      0.56 * (attackPower / Math.max(0.5, attackPower + defencePower * 0.95)),
       0.03,
       0.62,
     );
+
+    // A side set up to counter profits when the opponent commits men forward.
+    const isCounter = attacking.tactics.counterAttack && mentalityValue(defending.tactics) > 0;
+    if (isCounter) chanceProb *= tacticalModifiers(attacking.tactics).counter;
+
+    // A side protecting a lead late on can deliberately kill the game.
+    if (this.minute > 70) {
+      const leading = attacking === this.home
+        ? this.homeGoals > this.awayGoals
+        : this.awayGoals > this.homeGoals;
+      if (leading) chanceProb *= 1 - 0.25 * tacticalModifiers(attacking.tactics).timeWasting;
+    }
 
     // Fouls and cards happen whether or not a chance materialises.
     this.maybeFoul(defending, attacking, side === 'home' ? 'away' : 'home');
@@ -504,12 +608,18 @@ export class MatchSim {
       this.push(this.minute, 'corner', side,
         line(this.rng, 'corner', { team: attacking.shortName }),
         this.ballAt(side, 0.92), false);
-      // Corners are chances in their own right, mostly aerial ones.
-      if (this.rng.chance(0.14)) this.resolveChance(attacking, defending, side, true);
+      // Corners are chances in their own right, mostly aerial ones. Zonal marking defends them
+      // a little better; a good nominated taker makes them a little more dangerous.
+      const cornerChance = defending.tactics.marking === 'Zonal' ? 0.12 : 0.14;
+      if (this.rng.chance(cornerChance)) {
+        const taker = this.nominatedTaker(attacking, attacking.tactics.setPieces.corners,
+          (mp) => mp.player.attributes.corners * 2 + mp.player.attributes.crossing);
+        this.resolveChance(attacking, defending, side, true, taker);
+      }
       return;
     }
 
-    this.resolveChance(attacking, defending, side, false);
+    this.resolveChance(attacking, defending, side, false, null, isCounter);
   }
 
   private drainCondition(team: MatchTeam): void {
@@ -522,7 +632,7 @@ export class MatchSim {
         : team.tactics.pressing === 'Deep' ? 0.9 : 1;
       const drain = (0.45 - stamina * 0.012) * intensity;
       mp.condition = Math.max(12, mp.condition - Math.max(0.06, drain));
-      mp.effectiveness = matchEffectiveness(mp.player, mp.position) * (0.6 + 0.4 * (mp.condition / 100));
+      mp.effectiveness = baseEffectiveness(mp.player, mp.position) * conditionCurve(mp.condition);
     }
     // Strength is recomputed every few minutes rather than every minute — the difference is
     // negligible and this is the hot loop in a 10-season soak test.
@@ -535,23 +645,32 @@ export class MatchSim {
     defending: MatchTeam,
     side: 'home' | 'away',
     fromCorner: boolean,
+    forcedCreator: MatchPlayer | null = null,
+    isCounter = false,
   ): void {
     const shooter = this.pickAttacker(attacking, fromCorner);
-    const creator = this.pickCreator(attacking, shooter);
+    const creator = forcedCreator && forcedCreator !== shooter
+      ? forcedCreator
+      : this.pickCreator(attacking, shooter);
     const keeper = defending.onPitch.find((mp) => mp.position === 'GK' && mp.onPitch && !mp.red);
     const mods = tacticalModifiers(attacking.tactics);
 
     // Chance quality (expected goals) from the shooter, the supply and the defence.
     const attrs = shooter.player.attributes;
     const isHeader = fromCorner || (mods.aerial > 1 && this.rng.chance(0.18));
-    const longRange = !fromCorner && this.rng.chance(0.2);
+    const longShotProb = { Rarely: 0.12, Mixed: 0.2, Often: 0.3 }[shooter.instructions.longShots];
+    const longRange = !fromCorner && this.rng.chance(longShotProb);
 
     let xg = 0.122;
     xg *= 0.7 + (attacking.strength.creation / Math.max(0.5, attacking.strength.creation + defending.strength.defence)) * 1.2;
     xg *= mods.chanceQuality * this.weather.quality;
     if (isHeader) xg *= 0.72;
     if (longRange) xg *= 0.42;
+    if (isCounter) xg *= 1.05;
     if (creator) xg *= 1 + (creator.player.attributes.creativity - 10) * 0.012;
+    if (fromCorner && forcedCreator) {
+      xg *= 1 + (forcedCreator.player.attributes.corners - 10) * 0.008;
+    }
     xg = clamp(xg, 0.015, 0.62);
 
     attacking.stats.shots += 1;
@@ -633,12 +752,13 @@ export class MatchSim {
     creator: MatchPlayer | null,
     isHeader: boolean,
     longRange: boolean,
+    kind: 'open' | 'penalty' | 'free-kick' = 'open',
   ): void {
     if (side === 'home') this.homeGoals += 1;
     else this.awayGoals += 1;
 
     shooter.goals += 1;
-    shooter.rating += 1.05;
+    shooter.rating += kind === 'penalty' ? 0.8 : 1.05;
     if (creator && creator !== shooter) {
       creator.assists += 1;
       creator.rating += 0.6;
@@ -652,8 +772,11 @@ export class MatchSim {
       mp.rating -= mp.position === 'GK' ? 0.28 : 0.14;
     }
 
-    const bucket = isHeader ? 'headerGoal' : longRange ? 'longRangeGoal' : creator ? 'goalAssisted' : 'goal';
-    this.push(this.minute, 'goal', side, line(this.rng, bucket, {
+    const bucket = kind === 'penalty' ? 'penaltyScored'
+      : kind === 'free-kick' ? 'freeKickGoal'
+      : isHeader ? 'headerGoal' : longRange ? 'longRangeGoal' : creator ? 'goalAssisted' : 'goal';
+    const type = kind === 'penalty' ? 'penalty-goal' : 'goal';
+    this.push(this.minute, type, side, line(this.rng, bucket, {
       ...this.scoreVars(),
       player: shooter.player.shortName,
       creator: creator?.player.shortName ?? '',
@@ -666,7 +789,12 @@ export class MatchSim {
 
   private maybeFoul(defending: MatchTeam, attacking: MatchTeam, side: 'home' | 'away'): void {
     const mods = tacticalModifiers(defending.tactics);
-    const foulProb = 0.24 * mods.cardRisk * this.weather.error;
+    // A side killing the game late on commits more professional fouls.
+    const defLeading = defending === this.home
+      ? this.homeGoals > this.awayGoals
+      : this.awayGoals > this.homeGoals;
+    const twFoul = defLeading && this.minute > 70 ? 1 + 0.3 * mods.timeWasting : 1;
+    const foulProb = 0.24 * mods.cardRisk * this.weather.error * twFoul;
     if (!this.rng.chance(foulProb)) return;
 
     const offender = this.pickDefender(defending);
@@ -675,11 +803,21 @@ export class MatchSim {
       team: attacking.shortName, player: offender.player.shortName,
     }), this.ballAt(side === 'home' ? 'away' : 'home', 0.6), false);
 
-    // Card risk scales with dirtiness, aggression and the tackling instruction. A player already
-    // on a yellow visibly pulls out of challenges, which is why second bookings are rare.
+    // Some fouls are in the box; some are shooting range for a dead-ball specialist.
+    const attackingSide: 'home' | 'away' = side === 'home' ? 'away' : 'home';
+    if (this.rng.chance(0.008)) {
+      this.takePenalty(attacking, attackingSide, defending);
+    } else if (this.rng.chance(0.055)) {
+      this.takeFreeKick(attacking, attackingSide, defending);
+    }
+
+    // Card risk scales with dirtiness, aggression and the tackling instructions — the team's and
+    // the individual's. A player already on a yellow visibly pulls out of challenges, which is
+    // why second bookings are rare.
     const alreadyBooked = offender.yellow > 0 ? 0.32 : 1;
+    const slotTackling = { Cautious: 0.8, Normal: 1, Hard: 1.2 }[offender.instructions.tackling];
     const cardProb = clamp(
-      0.16 * mods.cardRisk * alreadyBooked *
+      0.16 * mods.cardRisk * slotTackling * alreadyBooked *
         (0.6 + offender.player.attributes.dirtiness / 20) *
         (0.7 + offender.player.attributes.aggression / 25),
       0.01,
@@ -735,6 +873,105 @@ export class MatchSim {
   }
 
   // -------------------------------------------------------------------------------------------
+  // Set pieces
+  // -------------------------------------------------------------------------------------------
+
+  /** The nominated taker if they're on the pitch, otherwise the best available by `score`. */
+  private nominatedTaker(
+    team: MatchTeam,
+    nomineeId: string | null,
+    score: (mp: MatchPlayer) => number,
+  ): MatchPlayer {
+    const available = team.onPitch.filter((mp) => mp.onPitch && !mp.red);
+    const nominee = nomineeId
+      ? available.find((mp) => mp.player.id === nomineeId)
+      : undefined;
+    if (nominee) return nominee;
+    return available.slice().sort((a, b) => score(b) - score(a))[0] ?? team.onPitch[0];
+  }
+
+  private takePenalty(attacking: MatchTeam, side: 'home' | 'away', defending: MatchTeam): void {
+    const taker = this.nominatedTaker(attacking, attacking.tactics.setPieces.penalties,
+      (mp) => mp.player.attributes.penalties * 2 + mp.player.attributes.composure);
+    const keeper = defending.onPitch.find((mp) => mp.position === 'GK' && mp.onPitch && !mp.red);
+
+    this.push(this.minute, 'chance', side,
+      line(this.rng, 'penaltyAwarded', { player: taker.player.shortName }),
+      this.ballAt(side, 0.95), true);
+
+    const attrs = taker.player.attributes;
+    const keeping = keeper ? keeper.player.attributes.reflexes / 20 : 0.4;
+    const conversion = clamp(
+      0.62 + ((attrs.penalties * 2 + attrs.composure + attrs.technique) / 4 / 20) * 0.35 - keeping * 0.15,
+      0.5,
+      0.92,
+    );
+
+    attacking.stats.shots += 1;
+    attacking.stats.xg += 0.76;
+    taker.shots += 1;
+
+    if (this.rng.chance(conversion)) {
+      attacking.stats.shotsOnTarget += 1;
+      this.scoreGoal(attacking, side, taker, null, false, false, 'penalty');
+      return;
+    }
+
+    taker.rating -= 0.5;
+    const saved = Boolean(keeper) && this.rng.chance(0.8);
+    if (saved && keeper) {
+      keeper.saves += 1;
+      keeper.rating += 0.55;
+      defending.stats.saves += 1;
+      attacking.stats.shotsOnTarget += 1;
+    }
+    this.push(this.minute, 'penalty-miss', side, line(this.rng, 'penaltyMissed', {
+      player: taker.player.shortName, keeper: keeper?.player.shortName ?? 'The keeper',
+    }), this.ballAt(side, 0.95), true, taker.player.id);
+  }
+
+  private takeFreeKick(attacking: MatchTeam, side: 'home' | 'away', defending: MatchTeam): void {
+    const taker = this.nominatedTaker(attacking, attacking.tactics.setPieces.freeKicks,
+      (mp) => mp.player.attributes.freeKicks * 2 + mp.player.attributes.technique);
+    const keeper = defending.onPitch.find((mp) => mp.position === 'GK' && mp.onPitch && !mp.red);
+    const attrs = taker.player.attributes;
+
+    attacking.stats.shots += 1;
+    attacking.stats.xg += 0.06;
+    taker.shots += 1;
+
+    const goalProb = clamp(0.02 + (attrs.freeKicks / 20) * 0.09, 0.02, 0.11) * this.weather.quality;
+    if (this.rng.chance(goalProb)) {
+      attacking.stats.shotsOnTarget += 1;
+      this.scoreGoal(attacking, side, taker, null, false, false, 'free-kick');
+      return;
+    }
+
+    if (keeper && this.rng.chance(0.4)) {
+      keeper.saves += 1;
+      keeper.rating += 0.12;
+      defending.stats.saves += 1;
+      attacking.stats.shotsOnTarget += 1;
+      this.push(this.minute, 'save', side, line(this.rng, 'freeKickSaved', {
+        player: taker.player.shortName, keeper: keeper.player.shortName,
+      }), this.ballAt(side, 0.9), false);
+      return;
+    }
+
+    if (this.rng.chance(0.08)) {
+      this.push(this.minute, 'woodwork', side,
+        line(this.rng, 'woodwork', { player: taker.player.shortName }),
+        this.ballAt(side, 0.94), true);
+      taker.rating += 0.15;
+      return;
+    }
+
+    this.push(this.minute, 'shot', side,
+      line(this.rng, 'freeKickOff', { player: taker.player.shortName }),
+      this.ballAt(side, 0.9), false);
+  }
+
+  // -------------------------------------------------------------------------------------------
   // Substitutions
   // -------------------------------------------------------------------------------------------
 
@@ -751,7 +988,8 @@ export class MatchSim {
     on.onPitch = true;
     on.position = off.position;
     on.role = off.role;
-    on.effectiveness = matchEffectiveness(on.player, on.position);
+    on.instructions = { ...off.instructions };
+    on.effectiveness = baseEffectiveness(on.player, on.position) * conditionCurve(on.condition);
     team.onPitch.push(on);
     team.bench.splice(team.bench.indexOf(on), 1);
     team.subsUsed += 1;
@@ -825,11 +1063,20 @@ export class MatchSim {
 
   private penaltyShootout(): void {
     this.push(120, 'penalties', 'neutral', line(this.rng, 'penaltyShootout', {}), { x: 0.5, y: 0.9 }, true);
-    const takers = (team: MatchTeam) => team.onPitch
-      .filter((mp) => mp.onPitch && !mp.red)
-      .sort((a, b) =>
-        (b.player.attributes.penalties * 2 + b.player.attributes.composure) -
-        (a.player.attributes.penalties * 2 + a.player.attributes.composure));
+    const takers = (team: MatchTeam) => {
+      const ordered = team.onPitch
+        .filter((mp) => mp.onPitch && !mp.red)
+        .sort((a, b) =>
+          (b.player.attributes.penalties * 2 + b.player.attributes.composure) -
+          (a.player.attributes.penalties * 2 + a.player.attributes.composure));
+      // The nominated taker goes first, exactly as they would on the day.
+      const nomineeId = team.tactics.setPieces.penalties;
+      const nominee = nomineeId ? ordered.find((mp) => mp.player.id === nomineeId) : undefined;
+      if (nominee) {
+        return [nominee, ...ordered.filter((mp) => mp !== nominee)];
+      }
+      return ordered;
+    };
 
     const homeTakers = takers(this.home);
     const awayTakers = takers(this.away);
@@ -876,8 +1123,10 @@ export class MatchSim {
     if (candidates.length === 0) return team.onPitch[0];
     return this.rng.weighted(candidates, (mp) => {
       const profile = ROLE_PROFILES[mp.role as keyof typeof ROLE_PROFILES] ?? ROLE_PROFILES['Box to Box'];
-      const advance = POSITION_COORDS[mp.position].y;
-      const base = profile.finishing * (0.3 + advance) * mp.effectiveness;
+      // How high up the pitch the player operates: position, shifted by how advanced the role is.
+      const advance = clamp(POSITION_COORDS[mp.position].y + profile.advance * 0.12, 0, 1);
+      const runs = { Rarely: 0.8, Mixed: 1, Often: 1.25 }[mp.instructions.forwardRuns];
+      const base = profile.finishing * (0.3 + advance) * runs * mp.effectiveness;
       if (aerial) {
         return base * (0.5 + (mp.player.attributes.heading + mp.player.attributes.jumping) / 40);
       }
@@ -894,7 +1143,8 @@ export class MatchSim {
     if (this.rng.chance(0.25)) return null;
     return this.rng.weighted(candidates, (mp) => {
       const profile = ROLE_PROFILES[mp.role as keyof typeof ROLE_PROFILES] ?? ROLE_PROFILES['Box to Box'];
-      return profile.creation * mp.effectiveness;
+      const balls = { Rarely: 0.85, Mixed: 1, Often: 1.2 }[mp.instructions.throughBalls];
+      return profile.creation * balls * mp.effectiveness;
     });
   }
 

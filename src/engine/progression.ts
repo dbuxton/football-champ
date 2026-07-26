@@ -8,8 +8,8 @@
 
 import { Rng, clamp, deriveSeed } from './rng';
 import { addDaysISO, dateToISO, parseISO, seasonLabel } from './date';
-import { Attributes, Player, Position, Staff } from './types';
-import { GameState, squadOf, staffOf } from './gamestate';
+import { ATTRIBUTE_LABELS, Attributes, Player, Position, Staff } from './types';
+import { GameState, squadOf, staffOf, snapshotPlayer } from './gamestate';
 import {
   ageOf, buildPlayer, computeValue, makeContract, totalStats, PlayerSeed,
 } from './players';
@@ -295,6 +295,7 @@ export function processYouthIntake(state: GameState): void {
       state.players[player.id] = player;
       club.playerIds.push(player.id);
       intake.push(player);
+      if (club.isPlayerControlled) snapshotPlayer(state, player.id);
     }
 
     if (!club.isPlayerControlled) continue;
@@ -481,6 +482,80 @@ export function processMorale(state: GameState): void {
       }
     }
   }
+}
+
+/** The club's overall coaching standard, for the staff screen and the training report. */
+export function clubCoachingRating(state: GameState, clubId: string): number {
+  const staff = staffOf(state, clubId);
+  return (coachQuality(staff, 'technical') + coachQuality(staff, 'tactical') +
+    coachQuality(staff, 'fitness')) / 3;
+}
+
+/**
+ * The monthly training report: the visible face of the (deliberately slow) development model.
+ * One inbox item a month naming who is coming on and who is going backwards.
+ */
+export function monthlyTrainingReport(state: GameState): void {
+  const club = state.clubs[state.manager.clubId];
+  if (!club || !club.isPlayerControlled) return;
+  const squad = squadOf(state, club.id);
+  if (squad.length === 0) return;
+
+  const baseline = state.lastTrainingReportCA;
+  const deltas = squad.map((player) => ({
+    player,
+    delta: player.currentAbility -
+      (baseline?.[player.id] ?? state.attributeSnapshots[player.id]?.ca ?? player.currentAbility),
+  }));
+  state.lastTrainingReportCA = Object.fromEntries(
+    squad.map((player) => [player.id, player.currentAbility]),
+  );
+
+  const risers = deltas.filter((d) => d.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 3);
+  const decliners = deltas.filter((d) => d.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 2);
+  if (risers.length === 0 && decliners.length === 0) return;
+
+  const coaching = clubCoachingRating(state, club.id);
+  const coachingLabel = coaching >= 14 ? 'excellent' : coaching >= 10 ? 'good'
+    : coaching >= 7 ? 'adequate' : 'poor';
+
+  const parts: string[] = [];
+  if (risers.length > 0) {
+    parts.push(`Improving: ${risers.map((r) => `${r.player.shortName} (+${r.delta})`).join(', ')}.`);
+  }
+  if (decliners.length > 0) {
+    parts.push(`Going backwards: ${decliners.map((d) => `${d.player.shortName} (${d.delta})`).join(', ')}.`);
+  }
+  parts.push(`Your coaching set-up is ${coachingLabel}.`);
+
+  addNews(state, {
+    category: 'squad',
+    subject: 'Monthly training report',
+    body: parts.join(' '),
+    relatedPlayerId: risers[0]?.player.id ?? decliners[0]?.player.id,
+  });
+}
+
+/**
+ * How a player has developed since their baseline snapshot (season start, or when they joined).
+ * Returns null when there is no baseline — e.g. a player you don't manage.
+ */
+export function developmentDelta(
+  state: GameState,
+  playerId: string,
+): { caDelta: number; changes: { attr: keyof Attributes; label: string; delta: number }[] } | null {
+  const snapshot = state.attributeSnapshots[playerId];
+  const player = state.players[playerId];
+  if (!snapshot || !player) return null;
+
+  const changes: { attr: keyof Attributes; label: string; delta: number }[] = [];
+  for (const key of Object.keys(snapshot.attributes) as (keyof Attributes)[]) {
+    const delta = player.attributes[key] - snapshot.attributes[key];
+    if (delta !== 0) changes.push({ attr: key, label: ATTRIBUTE_LABELS[key] ?? key, delta });
+  }
+  changes.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+  return { caDelta: player.currentAbility - snapshot.ca, changes };
 }
 
 /** Squad harmony 0-100, shown on the squad screen. */

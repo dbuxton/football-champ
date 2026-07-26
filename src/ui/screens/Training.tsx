@@ -5,8 +5,9 @@
 import { useGame } from '../GameContext';
 import { getClub, squadOf, staffOf, IndividualFocus, TrainingState } from '../../engine/gamestate';
 import { ageOf } from '../../engine/players';
+import { ownPlayerStars } from '../../engine/scouting';
 import { setIndividualFocus, setTrainingIntensity, setTrainingSchedule } from '../../game/actions';
-import { Attr, Bar, Field, OptionGroup, Panel } from '../components';
+import { Attr, Bar, DevArrow, Field, OptionGroup, Panel, stars } from '../components';
 
 const SCHEDULES: { value: TrainingState['schedule']; label: string; hint: string }[] = [
   { value: 'Balanced', label: 'Balanced', hint: 'No emphasis. Steady all-round development.' },
@@ -87,7 +88,8 @@ export function TrainingScreen() {
           <thead>
             <tr>
               <th>Player</th><th>Pos</th><th className="num">Age</th>
-              <th className="num">Ability</th><th className="num">Potential</th>
+              <th className="num">Ability</th><th className="num">Room to grow</th>
+              <th className="num" title="Development since the season started">Progress</th>
               <th className="num">Condition</th><th>Focus</th>
             </tr>
           </thead>
@@ -102,13 +104,15 @@ export function TrainingScreen() {
                     <td className="clickable" onClick={() => inspectPlayer(player.id)}>{player.shortName}</td>
                     <td className="pos">{player.naturalPosition}</td>
                     <td className="num">{ageOf(player, state.date)}</td>
-                    <td className="num">{player.currentAbility}</td>
+                    <td className="num">
+                      <span className="gold small">{stars(ownPlayerStars(state, player).stars)}</span>
+                    </td>
                     <td className="num">
                       <span className={headroom > 25 ? 'pos strong' : headroom > 8 ? '' : 'faint'}>
-                        {player.potentialAbility}
+                        {headroom > 25 ? 'Considerable' : headroom > 8 ? 'Some' : 'Little'}
                       </span>
-                      {headroom > 0 && <span className="faint small"> (+{headroom})</span>}
                     </td>
+                    <td className="num"><DevArrow state={state} playerId={player.id} /></td>
                     <td className="num"><Bar value={player.condition} /></td>
                     <td>
                       <select

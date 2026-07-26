@@ -7,7 +7,8 @@ import React, { useMemo, useState } from 'react';
 import { Club, Player, Position } from '../engine/types';
 import { GameState } from '../engine/gamestate';
 import { ageOf, averageForm, totalStats } from '../engine/players';
-import { knowledgeOf } from '../engine/scouting';
+import { knowledgeOf, ownPlayerStars } from '../engine/scouting';
+import { developmentDelta } from '../engine/progression';
 
 // ---------------------------------------------------------------------------------------------
 // Formatting
@@ -42,6 +43,30 @@ export function stars(count: number | null): string {
   const full = Math.floor(count);
   const half = count % 1 >= 0.5;
   return '★'.repeat(full) + (half ? '½' : '') + '☆'.repeat(Math.max(0, 5 - full - (half ? 1 : 0)));
+}
+
+/** Morale as a coloured dot with the number in the tooltip — legible at a glance. */
+export function MoraleDot({ value }: { value: number }) {
+  const label = value >= 80 ? 'Delighted' : value >= 62 ? 'Content' : value >= 45 ? 'Okay'
+    : value >= 28 ? 'Unhappy' : 'Furious';
+  const cls = value >= 62 ? 'pos' : value >= 45 ? '' : value >= 28 ? 'warn' : 'neg';
+  return <span className={cls} title={`Morale ${Math.round(value)} — ${label}`}>●</span>;
+}
+
+/** Development since the season-start snapshot, as an arrow with the detail in the tooltip. */
+export function DevArrow({ state, playerId }: { state: GameState; playerId: string }) {
+  const delta = developmentDelta(state, playerId);
+  if (!delta) return <span className="faint">–</span>;
+  const { caDelta, changes } = delta;
+  const glyph = caDelta >= 6 ? '▲▲' : caDelta >= 2 ? '▲' : caDelta <= -6 ? '▼▼' : caDelta <= -2 ? '▼' : '–';
+  const cls = caDelta >= 2 ? 'pos' : caDelta <= -2 ? 'neg' : 'faint';
+  const detail = changes.slice(0, 5)
+    .map((c) => `${c.label} ${c.delta > 0 ? '+' : ''}${c.delta}`)
+    .join(', ');
+  const title = caDelta === 0
+    ? 'No change since the season started'
+    : `Ability ${caDelta > 0 ? '+' : ''}${caDelta} since the season started${detail ? ` — ${detail}` : ''}`;
+  return <span className={cls} title={title}>{glyph}</span>;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -401,17 +426,33 @@ export function squadColumns(
       render: (p) => <span className="small faint">{stars(knowledgeOf(state, p).potentialStars)}</span>,
     });
   } else {
+    // Your own players get stars relative to the division: three stars is par for your level.
+    const leagueName = state.competitions[state.clubs[state.manager.clubId]?.leagueId ?? '']?.name ?? 'the division';
     columns.push({
-      key: 'ca', label: 'Ab', numeric: true,
+      key: 'ca', label: 'Ability', numeric: true,
       sort: (p) => p.currentAbility,
-      title: 'Current ability, 1-200',
-      render: (p) => <span className="strong">{p.currentAbility}</span>,
+      title: `Relative to ${leagueName} — three stars is par for the level`,
+      render: (p) => (
+        <span
+          className="gold small"
+          title={`Ability ${p.currentAbility}/200 — relative to ${leagueName}`}
+        >
+          {stars(ownPlayerStars(state, p).stars)}
+        </span>
+      ),
     });
     columns.push({
-      key: 'pa', label: 'Pot', numeric: true,
+      key: 'pa', label: 'Potential', numeric: true,
       sort: (p) => p.potentialAbility,
-      title: 'Potential ability, 1-200',
-      render: (p) => <span className="faint">{p.potentialAbility}</span>,
+      title: `How good he could become, relative to ${leagueName}`,
+      render: (p) => (
+        <span
+          className="small faint"
+          title={`Potential ${p.potentialAbility}/200 — relative to ${leagueName}`}
+        >
+          {stars(ownPlayerStars(state, p).potentialStars)}
+        </span>
+      ),
     });
   }
 

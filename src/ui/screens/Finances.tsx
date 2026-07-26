@@ -11,7 +11,7 @@ import {
 } from '../../engine/finance';
 import { seasonLabel } from '../../engine/date';
 import { PS_ALLOWABLE_LOSS_3_YEARS, PARACHUTE_PAYMENTS } from '../../data/competitions';
-import { Panel, exactMoney, money } from '../components';
+import { Bar, Panel, exactMoney, money } from '../components';
 
 export function FinancesScreen() {
   const { state } = useGame();
@@ -37,9 +37,57 @@ export function FinancesScreen() {
   const totalExpenditure = expenditure.reduce((sum, [, amount]) => sum + amount, 0);
   const loss = rollingLoss(club);
   const parachute = state.parachuteYears[club.id];
+  const bill = wageBill(state, club.id);
+  const projected = projectBalance(state, club.id);
+  const psUsed = Math.min(100, Math.round((loss / PS_ALLOWABLE_LOSS_3_YEARS) * 100));
 
   return (
     <>
+      <div className="statcards">
+        <div className="statcard">
+          <div className="statcard__label">Balance</div>
+          <div className={`statcard__value ${finances.balance < 0 ? 'neg' : 'pos'}`}>
+            {money(finances.balance)}
+          </div>
+          <div className={`statcard__hint ${projected < 0 ? 'neg' : ''}`}>
+            Projected {money(projected)} at season end
+          </div>
+        </div>
+        <div className="statcard">
+          <div className="statcard__label">Wage bill</div>
+          <div className={`statcard__value ${bill > finances.wageBudget ? 'neg' : ''}`}>
+            {money(bill)}/w
+          </div>
+          <Bar
+            value={bill}
+            max={Math.max(bill, finances.wageBudget)}
+            tone={bill > finances.wageBudget ? 'var(--red)' : 'var(--accent-dim)'}
+          />
+          <div className="statcard__hint">Budget {money(finances.wageBudget)}/w</div>
+        </div>
+        <div className="statcard">
+          <div className="statcard__label">Transfer budget</div>
+          <div className="statcard__value">{money(finances.transferBudget)}</div>
+          <div className="statcard__hint">
+            {state.transferWindowOpen ? 'Window open' : 'Window closed — loans and frees only'}
+          </div>
+        </div>
+        <div className="statcard">
+          <div className="statcard__label">P&S headroom</div>
+          <div className={`statcard__value ${psUsed >= 100 ? 'neg' : psUsed > 70 ? 'warn' : 'pos'}`}>
+            {psUsed}% used
+          </div>
+          <Bar
+            value={loss}
+            max={PS_ALLOWABLE_LOSS_3_YEARS}
+            tone={psUsed >= 100 ? 'var(--red)' : psUsed > 70 ? 'var(--amber)' : 'var(--accent-dim)'}
+          />
+          <div className="statcard__hint">
+            {money(loss)} of {money(PS_ALLOWABLE_LOSS_3_YEARS)} three-year loss allowance
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid--3">
         <Panel title="Position">
           <table className="data">

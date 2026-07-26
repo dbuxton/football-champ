@@ -8,7 +8,7 @@
 
 import { Rng, clamp, deriveSeed } from './rng';
 import { addDaysISO, dateToISO, parseISO, seasonLabel } from './date';
-import { Attributes, Player, Position, Staff } from './types';
+import { ATTRIBUTE_LABELS, Attributes, Player, Position, Staff } from './types';
 import { GameState, squadOf, staffOf, snapshotPlayer } from './gamestate';
 import {
   ageOf, buildPlayer, computeValue, makeContract, totalStats, PlayerSeed,
@@ -482,6 +482,28 @@ export function processMorale(state: GameState): void {
       }
     }
   }
+}
+
+/**
+ * How a player has developed since their baseline snapshot (season start, or when they joined).
+ * Returns null when there is no baseline — e.g. a player you don't manage.
+ */
+export function developmentDelta(
+  state: GameState,
+  playerId: string,
+): { caDelta: number; changes: { attr: keyof Attributes; label: string; delta: number }[] } | null {
+  const snapshot = state.attributeSnapshots[playerId];
+  const player = state.players[playerId];
+  if (!snapshot || !player) return null;
+
+  const changes: { attr: keyof Attributes; label: string; delta: number }[] = [];
+  for (const key of Object.keys(snapshot.attributes) as (keyof Attributes)[]) {
+    const delta = player.attributes[key] - snapshot.attributes[key];
+    if (delta !== 0) changes.push({ attr: key, label: ATTRIBUTE_LABELS[key] ?? key, delta });
+  }
+  changes.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+  return { caDelta: player.currentAbility - snapshot.ca, changes };
 }
 
 /** Squad harmony 0-100, shown on the squad screen. */

@@ -1,5 +1,11 @@
 # Football Champ
 
+> **Two games live here now.** The site's front page is **Superstar**, a colourful football game for
+> kids where you *are* the footballer and play every match yourself — play well and bigger clubs sign
+> you, play badly and you move to a smaller one. The management game described below lives at
+> **`/manager/`**. Superstar is a work in progress: see [docs/SUPERSTAR.md](docs/SUPERSTAR.md) for how
+> it works, how to run it, and what's left to do.
+
 A football management game in the spirit of Championship Manager, running **entirely in your
 browser**. No backend, no accounts, no API keys — a static site that saves to your browser's local
 storage and is hosted free on GitHub Pages.

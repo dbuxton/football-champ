@@ -95,6 +95,11 @@ export function StartScreen({ onStart }: { onStart: (state: GameState) => void }
             Take charge of a Championship club and build something. Your appointment is not your
             choice — someone has to want you first.
           </p>
+          <p className="newgame__sub">
+            Rather be out on the pitch yourself?{' '}
+            <a href="../" style={{ color: 'var(--accent)', fontWeight: 700 }}>Play Superstar</a>, where you are the
+            footballer.
+          </p>
         </div>
 
         <div style={{ padding: '10px 22px 20px' }} className="col">

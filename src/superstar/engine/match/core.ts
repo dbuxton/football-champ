@@ -46,6 +46,7 @@ export function kick(s: MatchState, a: Agent, tx: number, ty: number, speed: num
   ball.last = a.id;
   ball.pass = null;
   ball.shot = null;
+  ball.deflected = null;
   a.kickCd = KICK_COOLDOWN;
   a.hold = 0;
   if (a.human) s.charge = -1;
@@ -61,6 +62,7 @@ export function giveBall(s: MatchState, a: Agent): void {
   ball.last = a.id;
   ball.pass = null;
   ball.shot = null;
+  ball.deflected = null;
   ball.z = 0;
   ball.vz = 0;
   a.hold = 0;

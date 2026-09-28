@@ -118,6 +118,12 @@ export type Ball = {
   pass: { from: number; to: number } | null;
   /** A shot on its way to goal. */
   shot: { by: number } | null;
+  /**
+   * A shot the keeper parried or a player blocked, still loose. If it goes in before anyone else
+   * plays the ball, it's the shooter's goal (not an own goal). `counted`: already counted as on
+   * target (a save was).
+   */
+  deflected: { by: number; counted: boolean } | null;
   /** Radians the ball has rolled through, for drawing it spin. */
   spin: number;
   inNet: boolean;

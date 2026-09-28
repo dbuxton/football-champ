@@ -136,7 +136,7 @@ export function createMatch(setup: MatchSetup): MatchState {
     score: [0, 0],
     agents,
     humanId,
-    ball: { x: MID_X, y: MID_Y, z: 0, vx: 0, vy: 0, vz: 0, owner: -1, last: -1, pass: null, shot: null, spin: 0, inNet: false },
+    ball: { x: MID_X, y: MID_Y, z: 0, vx: 0, vy: 0, vz: 0, owner: -1, last: -1, pass: null, shot: null, deflected: null, spin: 0, inNet: false },
     restart: null,
     grace: 0,
     chasers: [-1, -1],
@@ -539,6 +539,8 @@ function keeperSaves(s: MatchState, prevX: number, prevY: number, prevZ: number)
       ball.vz = s.rng.float(1.5, 3.5);
       ball.z = Math.max(ball.z, 0.3);
       ball.last = k.id;
+      // If the parry still goes in, it's the shooter's goal.
+      ball.deflected = shot ? { by: shot.by, counted: true } : null;
       ball.shot = null;
       ball.pass = null;
       k.kickCd = 0.45;
@@ -592,6 +594,8 @@ function pickups(s: MatchState): void {
       ball.vy = ball.vy * 0.3 + s.rng.float(-4, 4);
       ball.vz = s.rng.float(0.5, 2.5);
       ball.last = best.id;
+      // A shot that goes in off somebody is still the shooter's goal.
+      ball.deflected = ball.shot ? { by: ball.shot.by, counted: false } : ball.deflected;
       ball.shot = null;
       ball.pass = null;
       best.kickCd = 0.3;
@@ -672,6 +676,7 @@ function slideContact(s: MatchState): void {
   ball.last = h.id;
   ball.pass = null;
   ball.shot = null;
+  ball.deflected = null;
   ball.vx = h.fx * 3.5;
   ball.vy = h.fy * 3.5;
   h.stun = 0.15;
@@ -731,11 +736,13 @@ function checkLines(s: MatchState, prevX: number, prevY: number, prevZ: number):
 function goal(s: MatchState, side: Side): void {
   const ball = s.ball;
   s.score[side] += 1;
-  const scorerId = ball.shot?.by ?? ball.last;
+  // A shot that went in off the keeper or a defender is the shooter's.
+  const deflected = ball.deflected && s.agents[ball.deflected.by].side === side ? ball.deflected : null;
+  const scorerId = ball.shot?.by ?? deflected?.by ?? ball.last;
   const scorer = scorerId >= 0 ? s.agents[scorerId] : null;
   if (scorer && scorer.side === side) {
     s.stats[scorer.id].goals += 1;
-    if (ball.shot) s.stats[scorer.id].onTarget += 1;
+    if (ball.shot || (deflected && !deflected.counted)) s.stats[scorer.id].onTarget += 1;
     const assist = scorer.receivedFrom >= 0 && s.agents[scorer.receivedFrom].side === side ? scorer.receivedFrom : -1;
     if (assist >= 0) s.stats[assist].assists += 1;
     record(s, 'goal', side, scorer.id, assist);
@@ -745,6 +752,7 @@ function goal(s: MatchState, side: Side): void {
   ball.inNet = true;
   ball.owner = -1;
   ball.shot = null;
+  ball.deflected = null;
   ball.pass = null;
   ball.vx *= 0.35;
   ball.vy *= 0.35;
@@ -839,6 +847,7 @@ function setRestart(s: MatchState, kind: RestartKind, side: Side, x: number, y: 
   ball.last = taker.id;
   ball.pass = null;
   ball.shot = null;
+  ball.deflected = null;
 
   // The other team stands back.
   const room = kind === 'kickoff' ? CENTRE_RADIUS : kind === 'corner' ? 6 : 4;

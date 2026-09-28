@@ -1,10 +1,35 @@
 # Football Champ
 
-> **Two games live here now.** The site's front page is **Superstar**, a colourful football game for
-> kids where you *are* the footballer and play every match yourself — play well and bigger clubs sign
-> you, play badly and you move to a smaller one. The management game described below lives at
-> **`/manager/`**. Superstar is a work in progress: see [docs/SUPERSTAR.md](docs/SUPERSTAR.md) for how
-> it works, how to run it, and what's left to do.
+Two football games share this repo and this site:
+
+- **Superstar**, at the site's front page (`/`): a colourful football game for kids where you *are*
+  the footballer and play every match yourself.
+- **Football Champ**, at **`/manager/`**: the Championship Manager-style management game described
+  from [the next section](#football-champ-the-manager-game) onwards.
+
+## Superstar
+
+Made from a kid's wish list: be a Premier League footballer and play the matches, don't just watch.
+
+- **Make your footballer:** name, shirt number, position (striker, winger, midfielder or defender), a
+  look, any of the 20 Premier League clubs with their real squads, a difficulty and a match length.
+- **Play every match yourself**, 11-a-side in real time. You control only your player; teammates and
+  opponents are computer players. Arrow keys or WASD to run, **X** to pass, hold **Space** to shoot,
+  **Shift** to sprint, **Esc** to pause. A game controller and touchscreens work too.
+- **Get a rating out of 10** after every match. Play well over a few matches and bigger clubs make
+  offers; have a tough run and you move to a smaller club. Each club expects a level of form, bigger
+  clubs expect more, and clubs expect more as training makes you better.
+- **Cups:** after 6 league matches the top half of the table goes into the FA Cup and the bottom
+  half into the EFL Cup. Drawn ties go to a penalty shootout; the final is at Wembley.
+- **Player cards** with everything on them, for you and for every real player.
+- **Every season the world moves on:** clubs rise and fall with where they finish, real players age,
+  improve, decline and retire, and so do you.
+
+Everything is kind: big buttons, bright colours, and "So close!" rather than "Wrong". Saves stay in
+the browser. [docs/SUPERSTAR.md](docs/SUPERSTAR.md) has the full rules, where the code is, the
+balance tools and what's left to do.
+
+## Football Champ, the manager game
 
 A football management game in the spirit of Championship Manager, running **entirely in your
 browser**. No backend, no accounts, no API keys — a static site that saves to your browser's local
@@ -138,17 +163,23 @@ you fork this under a different repository name, change `base` in `vite.config.t
 
 ```bash
 npm install
-npm run dev          # development server
-npm run build        # production build (typecheck + bundle)
+npm run dev          # development server: Superstar at /, the manager game at /manager/
+npm run build        # production build of both games (typecheck + bundle)
 npm run preview      # serve the production build
 ```
 
 ## Testing
 
 ```bash
-npm test             # unit tests, including a full simulated season
+npm test             # unit tests for both games, including a full simulated season
+npx vitest run src/superstar   # just Superstar's tests (a few seconds)
 npm run soak         # ten consecutive seasons, headless (takes several minutes)
 ```
+
+Superstar's tests (`src/superstar/test/`) check its data, that matches are deterministic and always
+finish sensibly, that a better player does better, the rating's bounds, the transfer rules, the cups
+and penalty shootouts, the season-end changes and save sanitising. CI runs them alongside the
+manager game's engine and save tests.
 
 The unit suite checks the things that make a career playable: deterministic generation from a seed,
 a balanced double round-robin with nobody double-booked, league-table maths and tiebreakers,
@@ -166,6 +197,7 @@ slow-burn balance bugs. It's excluded from CI for runtime and run locally.
 
 ```
 src/
+  superstar/  the Superstar game: its own engine, data, store, screens and tests (see docs/SUPERSTAR.md)
   engine/     pure TypeScript simulation — no React, no DOM, deterministic and seeded
   data/       clubs, squads, name pools, competition definitions
   game/       save/load, the day-advance loop, difficulty, the action layer

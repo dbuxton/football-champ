@@ -26,6 +26,7 @@ npm run dev            # http://localhost:5173/          → Superstar
                        # http://localhost:5173/manager/  → the manager game
 npm run typecheck      # tsc -b --force
 npm run build          # both pages into dist/
+npx vitest run src/superstar   # Superstar's unit tests (a few seconds)
 ```
 
 **Controls:** arrow keys (or WASD) to run, **X** to pass (or shout for the ball when a teammate has it),
@@ -57,12 +58,21 @@ s.careers.forEach((c) => (c.halfMinutes = 0.1)); localStorage.setItem(k, JSON.st
    posts and goal celebrations. The camera follows you and the ball, and a radar in the corner shows the
    whole pitch.
 5. **Full time.** You get a **rating out of 10**, your stats, any new badges and training points.
+   The rating counts what you did per standard 4-minute match (`STANDARD_HALF_SECONDS` in
+   `engine/rating.ts`), so 3-minute and 6-minute matches are judged fairly.
 6. **Transfers.** Your form is your average rating over your last 3 matches at your club. You need at
    least 3 matches at a club before a move, or only 2 if both were brilliant.
    - **Good form:** 2–3 bigger clubs make offers. Pick one, or stay.
    - **Poor form:** you're moved to a smaller club, choosing from 2.
-   - Bigger clubs expect more. The bars depend on the club's place on the ladder (`thresholds()` in
-     `engine/career.ts`).
+   - Every club expects a level of form: 6.0 at the smallest club rising to 7.9 at the biggest
+     (`EXPECTED`). Average more than 0.75 above it (`BAND`) and bigger clubs call; more than 0.75
+     below and you move down. So weak, average and good players each find a natural home.
+   - Clubs expect 0.06 more for every point training has added to your overall rating
+     (`EXPECT_PER_OVERALL`, up to 30 points), so training makes you better on the pitch but it's
+     still how you play that moves you. Nothing expects more than 8.5, so the top stays reachable.
+   - Easy expects 0.15 more and hard 0.8 less (`EXPECT_FOR_DIFFICULTY`): less than the difference
+     the difficulty makes to ratings, so easy gives a small leg-up and hard a small handicap.
+   - It's all in `thresholds()` / `barsFor()` in `engine/career.ts`.
 7. **Season.** There are 19 league matches, one against every other club. Other results are simulated
    from squad strength. The league table and Golden Boot race are live and include real players.
 8. **Cups.** After 6 league matches, clubs in the **top half go into the FA Cup** and the **bottom half
@@ -118,6 +128,7 @@ src/superstar/
                              touch), TouchPad, DemoPitch (the title screen's background match)
     screens/                 Title, Create, Hub, PreMatch, Penalties, FullTime, Transfer, SeasonEnd,
                              Table, Training, CareerScreen
+  test/                      vitest unit tests (node); helpers.ts plays quick headless matches
     components/              Kit.tsx (shirts, badges, the footballer drawing), Bits.tsx (player cards,
                              mini cards, rating bubbles, top bar, confetti…)
     sound.ts                 synthesised whistle, kicks, crowd
@@ -158,41 +169,45 @@ scripts/superstar/           headless balance scripts (sim, grid, rating, journe
 - [x] **Save:** sanitised and versioned, with a corrupt-save backup.
 - [x] **Checked in a real browser (headless Chromium):** the title screen, all 5 steps of making a
   player, the club screen, the team sheets and the start of a match. There were no console errors.
+- [x] **Career balance, checked with `scripts/superstar/journey.ts`.** Robot kids of three skills,
+  8 careers each, 60 matches (about 2½ seasons), starting at the 12th-biggest club with 4-minute
+  matches and spending their training points. Average final ladder rank (1 = biggest):
+
+  | Robot kid | Easy | Medium | Hard |
+  |---|---|---|---|
+  | Weak (0.2) | 18.0 | 19.1 | 18.6 |
+  | Average (0.5) | 4.4 | 9.4 | 13.9 |
+  | Good (0.8) | 1.0 | 1.0 | 4.3 |
+
+  Before the rework, on medium the average kid reached the 1st-biggest club, on easy even the weak
+  kid did, and the result also depended on match length (60s halves rated about a point lower than
+  120s halves). Reproduce with
+  `npx vite-node scripts/superstar/journey.ts 0.2,0.5,0.8 60 medium 12 striker 120 train 8`.
+  On easy a good player now scores about 3.4 goals a match (it was 4.7).
+- [x] **Played through in a browser** (Playwright, 12-second matches, a whole season and into the
+  next): full time → transfer news → welcome; the cup draw after match 6, the cup ties and the final
+  at Wembley; penalty shootouts; the end of the season and "What's new"; training, the table and My
+  career, at desktop and phone widths. No console errors. Fixed on the way: the penalty buttons sat
+  below the fold, the carry-on button could be pushed off screen by new badges, the top bar covered a
+  quarter of a phone screen, and the form card said "No matches yet" to players who had just moved.
+- [x] **Unit tests:** 99 vitest tests in `src/superstar/test/` (about 7 seconds), run in CI. They found
+  and fixed three bugs: offers near the top or bottom of the ladder only ever gave one club, a save
+  could keep duplicate player ids, and Champions / Golden Boot badges were dated a season late.
+- [x] **README** describes both games.
 
 ### Still to do (in rough order)
 
-- [ ] **Check the career balance with `scripts/superstar/journey.ts`.** It was about to run when work
-  stopped. Check that weak players drift to smaller clubs, average players settle in the middle and good
-  players climb. Tune `thresholds()` (and the jump sizes in `verdict()`) in `engine/career.ts`, and the
-  rating weights in `engine/rating.ts`.
-- [ ] **Play through in a browser the flows not yet seen there:**
-  - full time → transfer news → welcome;
-  - the cup draw after match 6, the cup ties and the final at Wembley;
-  - the **penalty shootout** screen (it type-checks but hasn't been seen running);
-  - the end of the season and "What's new" (quickest with 12-second matches, see above);
-  - touch controls on a real tablet, and a real game controller.
-- [ ] **Unit tests.** None exist for Superstar yet. The obvious ones:
-  - data: 20 clubs, squads, an eleven with one keeper, no kit clashes, a flag for every nationality;
-  - ageing keeps the league average level;
-  - match: the same seed and inputs give the same match; a match always finishes with no NaN
-    positions; goals happen at a sensible rate; a better bot outscores a worse one;
-  - rating: it goes up with goals and stays within 4–10;
-  - career: form, thresholds, offers going the right way, stay versus forced move;
-  - cups: the draw by half, ties, the final gives a trophy, penalty scoring and sudden death;
-  - season end: age, points, reputation shifts;
-  - save: garbage in gives an empty save, a real save round-trips, out-of-range values are clamped.
-
-  Then add `src/superstar` to the unit-test step in `.github/workflows/deploy.yml`, which currently only
-  runs `src/test/engine.test.ts` and `src/test/save.test.ts`.
-- [ ] **README.** Add a short section about Superstar and `/manager/` (the README still only describes
-  the manager game). Consider moving this file's "How the game works" into it.
+- [ ] **Try on real devices:** touch controls on a real tablet, and a real game controller.
 - [ ] **Deploy.** Merging to `main` publishes both games through the existing workflow: Superstar at
   `https://dbuxton.github.io/football-champ/` and the manager at `…/football-champ/manager/`.
 
 ### Known rough edges and ideas
 
-- **Easy may be too easy.** A good player can score several goals a match. See `DIFFICULTY` in
-  `engine/match/tuning.ts`: `passToHuman`, `humanProtection`, `keeperFactor`, `opponentSkill`.
+- **The balance is tuned against a robot kid** (`engine/match/bot.ts`). Real kids may play
+  differently: if careers feel off, adjust `EXPECTED`, `BAND` and `EXPECT_FOR_DIFFICULTY` in
+  `engine/career.ts` first, then `DIFFICULTY` in `engine/match/tuning.ts`.
+- **Moves are frequent:** about one every 5–6 matches on average. `BAND` (wider = fewer moves) and
+  `SETTLE_MATCHES` control it.
 - **Computer shots rarely miss the target.** Most end as goals or saves; `shoot()` in
   `engine/match/actions.ts` sets the error.
 - **Transfers can happen after any match** once you've played 3 at a club. There's no transfer window.

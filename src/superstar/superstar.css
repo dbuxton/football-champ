@@ -924,6 +924,25 @@ kbd {
   font-size: 1.2rem;
 }
 
+/* On a phone the buttons wrap onto several rows; kept stuck to the top they'd hide a quarter of
+   the screen, so there the bar scrolls away with the page and the buttons sit on one sliding row. */
+@media (max-width: 640px) {
+  .ss-topbar {
+    position: static;
+  }
+
+  .ss-topbar nav {
+    flex-wrap: nowrap;
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+
+  .ss-topbar nav .ss-btn {
+    flex: none;
+  }
+}
+
 /* ─── Player cards ─────────────────────────────────────────────────────── */
 
 .ss-player-card {

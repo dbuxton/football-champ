@@ -13,6 +13,8 @@ export function Training({ career }: { career: Career }) {
         <h1 className="ss-headline">Training ground</h1>
         <p className="ss-hello-sub" style={{ textAlign: 'center' }}>
           Every match earns training points — more for playing well, scoring and setting up goals.
+          <br />
+          The better you get, the more the big clubs expect — so keep playing your best!
         </p>
         <div className="ss-training">
           <PlayerCard career={career} />

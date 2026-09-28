@@ -14,7 +14,19 @@ import {
 } from '../pitch';
 import { crossTo, keeperDistribute, passTo, passValue, pressureOn, shoot, smartAim } from './actions';
 import { goalAngle, interceptPoint, nearestOf, nextDecision, possessionSide, predictBall, slotToWorld } from './core';
-import { DIFFICULTY, DRIBBLE_SLOWDOWN, GRAVITY, keeperAbility } from './tuning';
+import { planDefence } from './defend';
+import {
+  DIFFICULTY,
+  DRIBBLE_SLOWDOWN,
+  GRAVITY,
+  RUN_BEYOND,
+  RUN_GOAL_MARGIN,
+  RUN_RATE,
+  RUN_TIME,
+  SHOOT_RANGE,
+  SHOOT_RANGE_SKILL,
+  keeperAbility,
+} from './tuning';
 import type { Agent, MatchState, Side } from './types';
 
 /**
@@ -22,8 +34,10 @@ import type { Agent, MatchState, Side } from './types';
  *
  * Deliberately simple rules, because simple rules read as football from a distance: keep your
  * place in the team's shape, which slides up and across with the ball; the nearest player chases
- * a loose ball and presses whoever has it; on the ball, shoot if it's on, pass if someone's
- * better placed, run at goal otherwise. The kid's teammates love giving the kid the ball.
+ * a loose ball; without the ball, defend as a team (see `defend.ts`: meet the attack, chase back,
+ * mark, hold the line); with it, forwards make runs in behind to be passed into; on the ball,
+ * shoot if it's on, pass if someone's better placed, run at goal otherwise. The kid's teammates
+ * love giving the kid the ball.
  */
 
 /** Pick who chases a loose ball on each side: whoever can get there first. */
@@ -55,8 +69,11 @@ export function updateChasers(s: MatchState): void {
   }
 }
 
-/** Where a player stands in the team's shape, given where the ball is. */
-function shapeTarget(s: MatchState, a: Agent): { x: number; y: number } {
+/**
+ * Where a player stands in the team's shape, given where the ball is. `lineDepth` (metres from
+ * their own goal) is where the back four line up while the other team has the ball.
+ */
+function shapeTarget(s: MatchState, a: Agent, lineDepth: number | null = null): { x: number; y: number } {
   const slot = FORMATION[a.slot];
   const ball = s.ball;
   const bx = a.side === 0 ? ball.x / LENGTH : 1 - ball.x / LENGTH;
@@ -73,7 +90,8 @@ function shapeTarget(s: MatchState, a: Agent): { x: number; y: number } {
     case 'RB':
     case 'LB':
       x = clamp(x + (attacking && slot.role !== 'CB' ? 0.05 : 0), 0.06, attacking ? 0.6 : 0.5);
-      // Defending, stay between the ball and your own goal.
+      // Defending, hold the line, and never let the ball get between you and your own goal.
+      if (defending && lineDepth !== null) x = lineDepth / LENGTH;
       if (defending) x = Math.min(x, Math.max(0.05, bx - 0.02));
       break;
     case 'RM':
@@ -115,23 +133,16 @@ export function planRuns(s: MatchState, dt: number): void {
   const ball = s.ball;
   const owner = ball.owner >= 0 ? s.agents[ball.owner] : null;
 
-  // On each side, the two players nearest the ball-carrier press and cover.
-  const pressers: [number, number] = [-1, -1];
-  const covers: [number, number] = [-1, -1];
-  if (owner && s.grace <= 0) {
-    const side: Side = owner.side === 0 ? 1 : 0;
-    const ranked = s.agents
-      .filter((a) => a.side === side && !a.keeper && !a.human && a.stun <= 0)
-      .map((a) => ({ a, d: dist(a.x, a.y, owner.x, owner.y) }))
-      .sort((p, q) => p.d - q.d);
-    if (ranked[0]) pressers[side] = ranked[0].a.id;
-    if (ranked[1] && ranked[1].d < 16) covers[side] = ranked[1].a.id;
-  }
-
-  const marks = owner && s.grace <= 0 ? assignMarks(s, owner, pressers, covers) : null;
+  // Who the play is about: whoever has the ball, or whoever a pass is on its way to (defenders
+  // pick up the receiver while the ball is still travelling, not once it has arrived).
+  const focus = owner ?? (ball.pass ? s.agents[ball.pass.to] : null);
+  // The team without the ball defends as a unit.
+  const defence = focus && s.grace <= 0 ? planDefence(s, focus) : null;
 
   for (const a of s.agents) {
     if (a.human || a.id === ball.owner) continue;
+    // A run in behind ends when the team loses the ball.
+    if (!focus || a.side !== focus.side) a.run = 0;
     if (a.keeper) {
       keeperThink(s, a, dt);
       continue;
@@ -157,34 +168,15 @@ export function planRuns(s: MatchState, dt: number): void {
       a.urgency = 1;
       continue;
     }
-    if (owner && pressers[a.side] === a.id) {
-      // Close them down from the goal side, so they have to go round you.
-      const gx = ownGoalX(a.side);
-      const d = dist(owner.x, owner.y, gx, MID_Y) || 1;
-      a.tx = owner.x + ((gx - owner.x) / d) * 1.1;
-      a.ty = owner.y + ((MID_Y - owner.y) / d) * 1.1;
-      a.urgency = owner.human ? 0.92 : 0.97;
+    const job = focus && a.side !== focus.side ? defence?.jobs.get(a.id) : undefined;
+    if (job) {
+      a.tx = job.x;
+      a.ty = job.y;
+      a.urgency = job.urgency;
       continue;
     }
-    if (owner && covers[a.side] === a.id) {
-      const gx = ownGoalX(a.side);
-      const d = dist(owner.x, owner.y, gx, MID_Y);
-      a.tx = owner.x + ((gx - owner.x) / d) * 5;
-      a.ty = owner.y + ((MID_Y - owner.y) / d) * 5;
-      a.urgency = 0.85;
-      continue;
-    }
-    const marked = marks?.get(a.id);
-    if (marked) {
-      // Mark a dangerous runner from the goal side.
-      const gx = ownGoalX(a.side);
-      const d = dist(marked.x, marked.y, gx, MID_Y) || 1;
-      a.tx = marked.x + ((gx - marked.x) / d) * 1.8;
-      a.ty = marked.y + ((MID_Y - marked.y) / d) * 1.8;
-      a.urgency = 0.9;
-      continue;
-    }
-    const spot = shapeTarget(s, a);
+    if (focus && a.side === focus.side && makeRun(s, a, focus, dt)) continue;
+    const spot = shapeTarget(s, a, focus && a.side !== focus.side && defence ? defence.lineDepth : null);
     // Give the kid a bit of room: teammates don't park right on top of them.
     if (a.side === 0) {
       const h = s.agents[s.humanId];
@@ -202,40 +194,31 @@ export function planRuns(s: MatchState, dt: number): void {
 }
 
 /**
- * Defending, the back four and the midfield pick up the attackers nearest their own goal, one
- * each, so nobody is left alone in the box. Returns who marks whom.
+ * Forwards and wide players make runs in behind the defence when a teammate has the ball and
+ * time to look up: a short burst to just beyond the last defender, for a pass into space.
+ * Returns whether `a` is on a run.
  */
-function assignMarks(s: MatchState, owner: Agent, pressers: [number, number], covers: [number, number]): Map<number, Agent> {
-  const side: Side = owner.side === 0 ? 1 : 0;
-  const gx = ownGoalX(side);
-  const marks = new Map<number, Agent>();
-  const threats = s.agents
-    .filter((o) => o.side === owner.side && !o.keeper && o.id !== owner.id && Math.abs(o.x - gx) < 45)
-    .sort((p, q) => dist(p.x, p.y, gx, MID_Y) - dist(q.x, q.y, gx, MID_Y));
-  const free = s.agents.filter(
-    (a) =>
-      a.side === side &&
-      !a.keeper &&
-      !a.human &&
-      a.id !== pressers[side] &&
-      a.id !== covers[side] &&
-      (a.role === 'CB' || a.role === 'RB' || a.role === 'LB' || a.role === 'CM'),
-  );
-  for (const threat of threats) {
-    let best = -1;
-    let bestD = 20;
-    free.forEach((a, index) => {
-      const d = dist(a.x, a.y, threat.x, threat.y);
-      if (d < bestD) {
-        bestD = d;
-        best = index;
-      }
-    });
-    if (best < 0) continue;
-    marks.set(free[best].id, threat);
-    free.splice(best, 1);
+function makeRun(s: MatchState, a: Agent, owner: Agent, dt: number): boolean {
+  if (a.role !== 'ST' && a.role !== 'RM' && a.role !== 'LM') {
+    a.run = 0;
+    return false;
   }
-  return marks;
+  const gx = attackGoalX(a.side);
+  if (a.run <= 0) {
+    const time = !owner.keeper && owner.hold > 0.2 && pressureOn(s, owner) > 3;
+    const inRange = Math.abs(gx - a.x) < 50 && (a.x - owner.x) * attackSign(a.side) > -5;
+    if (!time || !inRange || !s.rng.chance(RUN_RATE * dt)) return false;
+    a.run = RUN_TIME;
+  }
+  a.run -= dt;
+  // Just beyond the deepest outfield defender, but not onto the goal line.
+  let deepest = Infinity;
+  for (const o of s.agents) if (o.side !== a.side && !o.keeper) deepest = Math.min(deepest, Math.abs(gx - o.x));
+  const fromGoal = Math.max(RUN_GOAL_MARGIN, Math.min(deepest - RUN_BEYOND, Math.abs(gx - a.x) - 3));
+  a.tx = gx - attackSign(a.side) * fromGoal;
+  a.ty = clamp(a.y + (MID_Y - a.y) * 0.25, 4, WIDTH - 4);
+  a.urgency = 1;
+  return true;
 }
 
 /** A computer player with the ball: shoot, pass, cross or run with it. */
@@ -269,7 +252,7 @@ export function ownerThink(s: MatchState, a: Agent, dt: number): void {
   }
 
   // Shoot?
-  const range = 15 + 11 * a.skills.shooting;
+  const range = SHOOT_RANGE + SHOOT_RANGE_SKILL * a.skills.shooting;
   if (toGoal < range) {
     const angle = goalAngle(a.side, a.x, a.y);
     let chance = (1 - toGoal / range) * 0.85 * Math.min(1, angle / 0.3) + (toGoal < 11 ? 0.35 : 0);

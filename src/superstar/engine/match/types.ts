@@ -87,6 +87,8 @@ export type Agent = {
   /** An AI dribbler's chosen direction. */
   dribbleX: number;
   dribbleY: number;
+  /** Seconds left of an AI forward's run in behind the defence. */
+  run: number;
   /** Where an AI player is heading, and how keen they are (fraction of top speed). */
   tx: number;
   ty: number;

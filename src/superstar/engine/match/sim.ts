@@ -110,6 +110,7 @@ export function createMatch(setup: MatchSetup): MatchState {
         receivedFrom: -1,
         dribbleX: side === 0 ? 1 : -1,
         dribbleY: 0,
+        run: 0,
         tx: home.x,
         ty: home.y,
         urgency: 0,

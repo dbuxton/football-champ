@@ -1,6 +1,17 @@
 import { LENGTH, MID_Y, WIDTH, attackGoalX, attackSign, clamp, dist, distToSegment } from '../pitch';
 import { kick } from './core';
-import { DIFFICULTY, GRAVITY, passSpeed } from './tuning';
+import {
+  DIFFICULTY,
+  GRAVITY,
+  LEAD_ARRIVE,
+  LEAD_FORWARD,
+  LEAD_LANE_RISK,
+  LEAD_MARGIN,
+  LEAD_MAX,
+  LEAD_REACTION,
+  ROLL_DECEL,
+  passSpeed,
+} from './tuning';
 import type { Agent, MatchState } from './types';
 
 /**
@@ -8,13 +19,58 @@ import type { Agent, MatchState } from './types';
  * the kid's buttons alike, so the kid's passes obey the same physics as everyone else's.
  */
 
-/** Pass to a teammate, leading them if they're on the move. */
+/** Seconds a ground pass takes to go `d` metres, arriving at `arrive` m/s (see `passSpeed`). */
+function passTime(d: number, arrive: number): number {
+  return (passSpeed(d, arrive) - arrive) / ROLL_DECEL;
+}
+
+/**
+ * Where to play a pass to `t`: into the space in front of them if they're running towards goal,
+ * so they run onto it, or to their feet if they're standing still or running anywhere else.
+ *
+ * The ideal spot is where the runner will be when the ball gets there. It's only used if the
+ * runner can get there before any opponent and the ball has a clear path; otherwise the pass
+ * comes back towards the runner until it's safe. If nowhere ahead is safe, it's played just in
+ * front of them, so a runner never has to stop and turn for it.
+ */
+export function leadPoint(s: MatchState, a: Agent, t: Agent): { x: number; y: number } {
+  const speed = Math.hypot(t.vx, t.vy);
+  if (speed < 2) return { x: t.x, y: t.y };
+  const ux = t.vx / speed;
+  const uy = t.vy / speed;
+  // Only a run towards goal is played into; anyone else gets it to feet.
+  if (ux * attackSign(t.side) < LEAD_FORWARD) return { x: t.x, y: t.y };
+  const at = (lead: number) => ({
+    x: clamp(t.x + ux * lead, 1, LENGTH - 1),
+    y: clamp(t.y + uy * lead, 1, WIDTH - 1),
+  });
+  // Where the runner will be when the ball arrives.
+  let ideal = 0;
+  while (ideal < LEAD_MAX) {
+    const p = at(ideal + 0.5);
+    if ((ideal + 0.5) / speed > passTime(dist(a.x, a.y, p.x, p.y), LEAD_ARRIVE)) break;
+    ideal += 0.5;
+  }
+  // The furthest ahead of that which is safe.
+  for (let lead = ideal; lead >= 1.5; lead -= 0.5) {
+    const p = at(lead);
+    if (Math.abs(p.x - t.x - ux * lead) > 0.3 || Math.abs(p.y - t.y - uy * lead) > 0.3) continue; // off the pitch
+    const runner = lead / speed;
+    const ball = passTime(dist(a.x, a.y, p.x, p.y), LEAD_ARRIVE);
+    let theirs = Infinity;
+    for (const o of s.agents) {
+      if (o.side === a.side) continue;
+      theirs = Math.min(theirs, dist(o.x, o.y, p.x, p.y) / o.maxSpeed + LEAD_REACTION);
+    }
+    if (theirs > Math.max(runner, ball) + LEAD_MARGIN && laneRisk(s, a, p.x, p.y) < LEAD_LANE_RISK) return p;
+  }
+  return at(Math.min(ideal, 1.5));
+}
+
+/** Pass to a teammate: into the space in front of them if they're running (see `leadPoint`). */
 export function passTo(s: MatchState, a: Agent, t: Agent, opts: { lob?: boolean } = {}): void {
-  const d = dist(a.x, a.y, t.x, t.y);
-  // Lead a runner, but less so the kid: a person changes direction more than the AI does.
-  const lead = (d / 15) * (t.human ? 0.45 : 0.85);
-  const tx = clamp(t.x + t.vx * lead, 1, LENGTH - 1);
-  const ty = clamp(t.y + t.vy * lead, 1, WIDTH - 1);
+  const { x: tx, y: ty } = leadPoint(s, a, t);
+  const led = dist(tx, ty, t.x, t.y) > 1;
   const td = dist(a.x, a.y, tx, ty);
   const error = (1 - a.skills.passing) * (a.human ? 4 : 6) + (a.human ? 0.5 : 0.8);
 
@@ -23,7 +79,8 @@ export function passTo(s: MatchState, a: Agent, t: Agent, opts: { lob?: boolean 
     const flight = td / speed;
     kick(s, a, tx, ty, speed, Math.min(12, (GRAVITY * flight) / 2), error);
   } else {
-    kick(s, a, tx, ty, passSpeed(td), 0, error);
+    // A pass into space is weighted to slow down as the runner gets to it.
+    kick(s, a, tx, ty, led ? passSpeed(td, LEAD_ARRIVE) : passSpeed(td), 0, error);
   }
   s.ball.pass = { from: a.id, to: t.id };
   s.stats[a.id].passes += 1;
@@ -131,18 +188,21 @@ export function laneRisk(s: MatchState, a: Agent, tx: number, ty: number): numbe
 export function passValue(s: MatchState, a: Agent, t: Agent): number {
   const d = dist(a.x, a.y, t.x, t.y);
   if (d < 4.5 || d > 40) return -Infinity;
+  // Judge the pass by where it will go: a through ball into space is worth more than the spot
+  // the runner has just left.
+  const p = leadPoint(s, a, t);
   const sign = attackSign(a.side);
-  const progress = (t.x - a.x) * sign;
+  const progress = (p.x - a.x) * sign;
   let open = 10;
   for (const o of s.agents) {
     if (o.side === a.side) continue;
-    open = Math.min(open, dist(t.x, t.y, o.x, o.y));
+    open = Math.min(open, dist(p.x, p.y, o.x, o.y));
   }
-  let value = progress * 0.08 + Math.min(open, 8) * 0.32 - laneRisk(s, a, t.x, t.y) * 1.3;
+  let value = progress * 0.08 + Math.min(open, 8) * 0.32 - laneRisk(s, a, p.x, p.y) * 1.3;
   if (d > 26) value -= (d - 26) * 0.12;
   if (t.keeper) value -= 3;
-  const toGoal = Math.abs(attackGoalX(a.side) - t.x);
-  if (toGoal < 20 && Math.abs(t.y - MID_Y) < 16) value += 0.8;
+  const toGoal = Math.abs(attackGoalX(a.side) - p.x);
+  if (toGoal < 20 && Math.abs(p.y - MID_Y) < 16) value += 0.8;
   if (t.human && !a.human) {
     const tuning = DIFFICULTY[s.setup.difficulty];
     value += tuning.passToHuman + Math.min(1.5, s.sinceTouch / 10) + (s.calling > 0 ? 3 : 0);
@@ -171,7 +231,10 @@ export function humanPassTarget(s: MatchState, a: Agent, dx: number, dy: number)
     if (angle > 1.35) continue;
     let open = 10;
     for (const o of s.agents) if (o.side !== a.side) open = Math.min(open, dist(t.x, t.y, o.x, o.y));
-    const score = -angle * 2.6 - Math.max(0, d - 12) * 0.05 - (d > 40 ? 3 : 0) + Math.min(open, 6) * 0.15 - (t.keeper ? 2 : 0);
+    // A teammate already running the way the kid is pushing is the one they mean.
+    const running = Math.max(0, t.vx * ux + t.vy * uy);
+    const score =
+      -angle * 2.6 - Math.max(0, d - 12) * 0.05 - (d > 40 ? 3 : 0) + Math.min(open, 6) * 0.15 - (t.keeper ? 2 : 0) + running * 0.06;
     if (score > bestScore) {
       bestScore = score;
       best = t;

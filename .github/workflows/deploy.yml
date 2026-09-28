@@ -35,7 +35,7 @@ jobs:
         run: npm run typecheck
 
       - name: Unit tests
-        run: npx vitest run src/test/engine.test.ts src/test/save.test.ts
+        run: npx vitest run src/test/engine.test.ts src/test/save.test.ts src/superstar
 
       - name: Build
         run: npm run build

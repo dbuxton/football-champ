@@ -191,7 +191,10 @@ export function sanitizeSave(v: unknown): SaveFile {
   for (const raw of Array.isArray(v.careers) ? v.careers : []) {
     const career = sanitizeCareer(raw);
     if (!career) continue;
-    if (seen.has(career.id)) career.id = `${career.id}_${careers.length}`;
+    if (seen.has(career.id)) {
+      const base = career.id;
+      for (let n = careers.length; seen.has(career.id); n++) career.id = `${base}_${n}`;
+    }
     seen.add(career.id);
     careers.push(career);
   }

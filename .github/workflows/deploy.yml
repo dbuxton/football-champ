@@ -34,8 +34,10 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      # Every test except the ten-season soak (too slow for CI; run it locally with `npm run soak`).
+      # A failing test stops the build, so nothing is deployed.
       - name: Unit tests
-        run: npx vitest run src/test/engine.test.ts src/test/save.test.ts src/superstar
+        run: npx vitest run --exclude src/test/soak.test.ts
 
       - name: Build
         run: npm run build

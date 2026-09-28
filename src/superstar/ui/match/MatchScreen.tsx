@@ -39,7 +39,7 @@ export function MatchScreen({ setup, scene, sound, showHelp, onFinish, onQuit, a
   const finishRef = useRef(onFinish);
   finishRef.current = onFinish;
 
-  const [hud, setHud] = useState({ score: [0, 0] as [number, number], minute: 0, energy: 1, half: 1 });
+  const [hud, setHud] = useState({ score: [0, 0] as [number, number], minute: 0, energy: 1, tired: false, half: 1 });
   const [banner, setBanner] = useState<Banner | null>(null);
   const [paused, setPaused] = useState(false);
   const [help, setHelp] = useState(showHelp && !autopilot);
@@ -80,6 +80,7 @@ export function MatchScreen({ setup, scene, sound, showHelp, onFinish, onQuit, a
     let time = 0;
     let hudMinute = -1;
     let hudEnergy = -1;
+    let hudTired = false;
     let hudGoals = 0;
 
     const resize = () => {
@@ -219,12 +220,14 @@ export function MatchScreen({ setup, scene, sound, showHelp, onFinish, onQuit, a
 
         const minute = minuteOf(state);
         const energy = Math.round(state.agents[state.humanId].energy * 20) / 20;
+        const tired = state.agents[state.humanId].tired;
         const goals = state.score[0] + state.score[1];
-        if (minute !== hudMinute || energy !== hudEnergy || goals !== hudGoals) {
+        if (minute !== hudMinute || energy !== hudEnergy || goals !== hudGoals || tired !== hudTired) {
           hudMinute = minute;
           hudEnergy = energy;
           hudGoals = goals;
-          setHud({ score: [state.score[0], state.score[1]], minute, energy, half: state.half });
+          hudTired = tired;
+          setHud({ score: [state.score[0], state.score[1]], minute, energy, tired, half: state.half });
         }
 
         if (state.phase === 'fulltime') {
@@ -308,11 +311,12 @@ export function MatchScreen({ setup, scene, sound, showHelp, onFinish, onQuit, a
         ⏸
       </button>
 
-      <div className="ss-energy" aria-label="Sprint energy">
-        <span>⚡</span>
+      <div className={`ss-energy ${hud.tired ? 'ss-energy-tired' : ''}`} aria-label={hud.tired ? 'Tired: catch your breath' : 'Sprint energy'}>
+        <span>{hud.tired ? '😮‍💨' : '⚡'}</span>
         <span className="ss-energy-bar">
           <span style={{ width: `${Math.round(hud.energy * 100)}%` }} />
         </span>
+        {hud.tired && <span className="ss-energy-word">Catch your breath!</span>}
       </div>
 
       <canvas ref={mapRef} className="ss-minimap" aria-hidden />

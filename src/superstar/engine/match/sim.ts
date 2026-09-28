@@ -48,7 +48,9 @@ import {
   SLIDE_TIME,
   SPRINT_BOOST,
   SPRINT_DRAIN,
-  SPRINT_RECOVER,
+  SPRINT_RECOVER_RESTING,
+  SPRINT_RECOVER_RUNNING,
+  TIRED_UNTIL,
   TACKLE_RANGE,
   TACKLE_RATE,
   humanRunSpeed,
@@ -107,6 +109,7 @@ export function createMatch(setup: MatchSetup): MatchState {
         decide: 0,
         hold: 0,
         energy: 1,
+        tired: false,
         receivedFrom: -1,
         dribbleX: side === 0 ? 1 : -1,
         dribbleY: 0,
@@ -242,9 +245,16 @@ function humanControl(s: MatchState, input: Input, dt: number): void {
   const moving = mag > 0.15;
   const hasBall = s.ball.owner === h.id;
 
-  const sprinting = input.sprint && moving && h.energy > 0.05 && s.phase !== 'goal' && s.phase !== 'halftime';
-  if (sprinting) h.energy = Math.max(0, h.energy - SPRINT_DRAIN * (1.3 - 0.6 * h.skills.stamina) * dt);
-  else h.energy = Math.min(1, h.energy + SPRINT_RECOVER * dt);
+  // Sprinting uses energy; run out and you're tired until you've got half of it back.
+  const sprinting = input.sprint && moving && !h.tired && s.phase !== 'goal' && s.phase !== 'halftime';
+  if (sprinting) {
+    h.energy = Math.max(0, h.energy - SPRINT_DRAIN * (1.3 - 0.6 * h.skills.stamina) * dt);
+    if (h.energy <= 0) h.tired = true;
+  } else {
+    const resting = mag < 0.5 || s.phase === 'goal' || s.phase === 'halftime';
+    h.energy = Math.min(1, h.energy + (resting ? SPRINT_RECOVER_RESTING : SPRINT_RECOVER_RUNNING) * dt);
+    if (h.tired && h.energy >= TIRED_UNTIL) h.tired = false;
+  }
 
   if (moving) {
     const len = Math.hypot(mx, my);

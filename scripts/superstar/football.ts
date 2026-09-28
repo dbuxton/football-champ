@@ -17,6 +17,8 @@
  *   complete  share of passes that reach a teammate
  *   line      spread (m) of the four defenders' distance from their own goal while defending
  *             (smaller = they move as a line)
+ *   to-kid    share of the kid's teammates' passes that go to the kid (there are ten teammates),
+ *             and how many times a match the kid gets the ball
  */
 import { lineUp } from '../../src/superstar/engine/lineup';
 import { makeBot } from '../../src/superstar/engine/match/bot';
@@ -42,6 +44,7 @@ const stepOut: number[] = [];
 const marked: number[] = [];
 const kidMarked: number[] = [];
 const line: number[] = [];
+let teamPasses = 0, toKid = 0, kidTouches = 0;
 let passes = 0, led = 0, movingPasses = 0, completed = 0, goals = 0, kidGoals = 0, shots = 0;
 
 for (let i = 0; i < n; i++) {
@@ -67,6 +70,11 @@ for (let i = 0; i < n; i++) {
     if (ball.pass && key !== lastPass) {
       const t = s.agents[ball.pass.to];
       passes++;
+      const from = s.agents[ball.pass.from];
+      if (from.side === 0 && from.id !== s.humanId) {
+        teamPasses++;
+        if (t.id === s.humanId) toKid++;
+      }
       if (Math.hypot(t.vx, t.vy) > 2) {
         movingPasses++;
         const end = predictBall(ball, 1.2);
@@ -99,6 +107,7 @@ for (let i = 0; i < n; i++) {
   for (const a of s.agents) completed += s.stats[a.id].passesDone;
   goals += s.score[0] + s.score[1];
   kidGoals += s.stats[s.humanId].goals;
+  kidTouches += s.stats[s.humanId].touches;
   for (const a of s.agents) shots += s.stats[a.id].shots;
 }
 
@@ -106,5 +115,6 @@ const f = (v: number) => v.toFixed(2);
 console.log(
   `${difficulty} ${auto ? 'auto' : `skill ${skill}`} ${n} matches: goals ${f(goals / n)} (kid ${f(kidGoals / n)}) shots ${f(shots / n)} | ` +
     `step-out ${f(mean(stepOut))}m marked ${f(mean(marked))}m kid ${f(mean(kidMarked))}m line ${f(mean(line))}m | ` +
-    `led ${f(led / Math.max(1, movingPasses))} complete ${f(completed / Math.max(1, passes))}`,
+    `led ${f(led / Math.max(1, movingPasses))} complete ${f(completed / Math.max(1, passes))} | ` +
+    `to-kid ${f(toKid / Math.max(1, teamPasses))} kid touches ${f(kidTouches / n)}`,
 );

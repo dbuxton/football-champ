@@ -121,13 +121,13 @@ describe('the match engine', () => {
   it('a better robot kid does better than a worse one', () => {
     // Short matches are streaky (an eager beginner's long shots can go in), so this plays enough
     // of them for skill to show, and leans on the match rating, which is what careers run on.
-    const n = 14;
+    const n = 10;
     const tally = (skill: number) => {
       let kidGoals = 0;
       let goalDiff = 0;
       let rating = 0;
       for (let i = 0; i < n; i++) {
-        const s = playMatch({ seed: 500 + i, halfSeconds: 40, botSkill: skill, botSeed: 500 + i });
+        const s = playMatch({ seed: 500 + i, halfSeconds: 60, botSkill: skill, botSeed: 500 + i });
         kidGoals += s.stats[s.humanId].goals;
         goalDiff += s.score[0] - s.score[1];
         rating += kidRating(s);

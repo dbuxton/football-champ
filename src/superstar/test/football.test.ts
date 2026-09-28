@@ -9,9 +9,9 @@ import { describe, it, expect } from 'vitest';
 import { lineUp } from '../engine/lineup';
 import { leadPoint } from '../engine/match/actions';
 import { planRuns, updateChasers } from '../engine/match/ai';
-import { createMatch } from '../engine/match/sim';
+import { createMatch, stepMatch } from '../engine/match/sim';
 import { DIFFICULTY, DT, MARK_TIGHT } from '../engine/match/tuning';
-import type { Agent, MatchState } from '../engine/match/types';
+import { NO_INPUT, type Agent, type MatchState } from '../engine/match/types';
 import { LENGTH, MID_Y, dist } from '../engine/pitch';
 import { STARTING_ATTRIBUTES } from '../engine/career';
 
@@ -189,5 +189,65 @@ describe('passing into space', () => {
     place(kid, 62, MID_Y - 6, 6.5, 0);
     const p = leadPoint(s, passer, kid);
     expect(p.x - kid.x).toBeGreaterThan(2);
+  });
+
+  it('plays it where the kid will be, whichever way the kid is running', () => {
+    const s = scene();
+    for (const o of s.agents.filter((a) => a.side === 1 && !a.keeper)) place(o, 20, o.y);
+    const passer = bySlot(s, 0, 6);
+    const kid = s.agents[s.humanId];
+    place(passer, 45, MID_Y);
+    // Running sideways, across the pitch.
+    place(kid, 62, MID_Y - 6, 0, 6.5);
+    const p = leadPoint(s, passer, kid);
+    expect(p.y - kid.y).toBeGreaterThan(2);
+    expect(Math.abs(p.x - kid.x)).toBeLessThan(0.5);
+  });
+
+  it("never plays it behind a running kid, even with a defender about", () => {
+    const s = scene();
+    for (const o of s.agents.filter((a) => a.side === 1 && !a.keeper)) place(o, 20, o.y);
+    const passer = bySlot(s, 0, 6);
+    const kid = s.agents[s.humanId];
+    place(passer, 45, MID_Y);
+    place(kid, 62, MID_Y - 6, 6.5, 0);
+    const open = leadPoint(s, passer, kid);
+    place(bySlot(s, 1, 2), 68, MID_Y - 6);
+    const marked = leadPoint(s, passer, kid);
+    expect(marked.x).toBeCloseTo(open.x, 5);
+  });
+});
+
+describe("the kid's teammates", () => {
+  it("don't just give the kid the ball every time: most of their passes go to others", () => {
+    let toKid = 0;
+    let passes = 0;
+    for (let i = 0; i < 4; i++) {
+      // A kid standing still and never calling: the team has to play without them.
+      const s = createMatch(
+        lineUp({
+          seed: 60 + i,
+          clubId: 'bha',
+          opponentId: 'eve',
+          home: true,
+          footballer: { name: 'Robin', number: 9, position: 'striker', attributes: { ...STARTING_ATTRIBUTES.striker } },
+          difficulty: 'easy',
+          halfSeconds: 40,
+        }),
+      );
+      let key = '';
+      while (s.phase !== 'fulltime') {
+        stepMatch(s, NO_INPUT);
+        const p = s.ball.pass;
+        const k = p ? `${p.from}>${p.to}@${s.ball.last}` : '';
+        if (p && k !== key && s.agents[p.from].side === 0 && p.from !== s.humanId) {
+          passes++;
+          if (p.to === s.humanId) toKid++;
+        }
+        key = k;
+      }
+    }
+    expect(passes).toBeGreaterThan(20);
+    expect(toKid / passes).toBeLessThan(0.35);
   });
 });

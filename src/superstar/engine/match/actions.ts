@@ -3,6 +3,11 @@ import { kick } from './core';
 import {
   DIFFICULTY,
   GRAVITY,
+  KID_CALL_BONUS,
+  KID_PASS_ARRIVE,
+  KID_FORGOTTEN,
+  KID_FORGOTTEN_MAX,
+  KID_FORGOTTEN_RATE,
   LEAD_ARRIVE,
   LEAD_FORWARD,
   LEAD_LANE_RISK,
@@ -28,18 +33,22 @@ function passTime(d: number, arrive: number): number {
  * Where to play a pass to `t`: into the space in front of them if they're running towards goal,
  * so they run onto it, or to their feet if they're standing still or running anywhere else.
  *
- * The ideal spot is where the runner will be when the ball gets there. It's only used if the
- * runner can get there before any opponent and the ball has a clear path; otherwise the pass
- * comes back towards the runner until it's safe. If nowhere ahead is safe, it's played just in
- * front of them, so a runner never has to stop and turn for it.
+ * The ideal spot is where the runner will be when the ball gets there. For a computer player
+ * it's only used if they can get there before any opponent and the ball has a clear path;
+ * otherwise the pass comes back towards them until it's safe, or just in front of them.
+ *
+ * The kid is different: a person keeps running where they're running, so a pass anywhere short
+ * of where they'll be ends up behind them. The kid always gets it where they'll be, whichever way
+ * they're going (a defender may nick it, but it's never played behind them).
  */
 export function leadPoint(s: MatchState, a: Agent, t: Agent): { x: number; y: number } {
   const speed = Math.hypot(t.vx, t.vy);
   if (speed < 2) return { x: t.x, y: t.y };
   const ux = t.vx / speed;
   const uy = t.vy / speed;
-  // Only a run towards goal is played into; anyone else gets it to feet.
-  if (ux * attackSign(t.side) < LEAD_FORWARD) return { x: t.x, y: t.y };
+  // A computer player is only played into space on a run towards goal; otherwise to feet.
+  if (!t.human && ux * attackSign(t.side) < LEAD_FORWARD) return { x: t.x, y: t.y };
+  const arrive = passArrival(t);
   const at = (lead: number) => ({
     x: clamp(t.x + ux * lead, 1, LENGTH - 1),
     y: clamp(t.y + uy * lead, 1, WIDTH - 1),
@@ -48,15 +57,16 @@ export function leadPoint(s: MatchState, a: Agent, t: Agent): { x: number; y: nu
   let ideal = 0;
   while (ideal < LEAD_MAX) {
     const p = at(ideal + 0.5);
-    if ((ideal + 0.5) / speed > passTime(dist(a.x, a.y, p.x, p.y), LEAD_ARRIVE)) break;
+    if ((ideal + 0.5) / speed > passTime(dist(a.x, a.y, p.x, p.y), arrive)) break;
     ideal += 0.5;
   }
+  if (t.human) return at(ideal);
   // The furthest ahead of that which is safe.
   for (let lead = ideal; lead >= 1.5; lead -= 0.5) {
     const p = at(lead);
     if (Math.abs(p.x - t.x - ux * lead) > 0.3 || Math.abs(p.y - t.y - uy * lead) > 0.3) continue; // off the pitch
     const runner = lead / speed;
-    const ball = passTime(dist(a.x, a.y, p.x, p.y), LEAD_ARRIVE);
+    const ball = passTime(dist(a.x, a.y, p.x, p.y), arrive);
     let theirs = Infinity;
     for (const o of s.agents) {
       if (o.side === a.side) continue;
@@ -65,6 +75,11 @@ export function leadPoint(s: MatchState, a: Agent, t: Agent): { x: number; y: nu
     if (theirs > Math.max(runner, ball) + LEAD_MARGIN && laneRisk(s, a, p.x, p.y) < LEAD_LANE_RISK) return p;
   }
   return at(Math.min(ideal, 1.5));
+}
+
+/** How fast a pass to `t` should still be rolling when it gets to them. */
+function passArrival(t: Agent): number {
+  return t.human ? KID_PASS_ARRIVE : LEAD_ARRIVE;
 }
 
 /** Pass to a teammate: into the space in front of them if they're running (see `leadPoint`). */
@@ -80,7 +95,7 @@ export function passTo(s: MatchState, a: Agent, t: Agent, opts: { lob?: boolean 
     kick(s, a, tx, ty, speed, Math.min(12, (GRAVITY * flight) / 2), error);
   } else {
     // A pass into space is weighted to slow down as the runner gets to it.
-    kick(s, a, tx, ty, led ? passSpeed(td, LEAD_ARRIVE) : passSpeed(td), 0, error);
+    kick(s, a, tx, ty, led || t.human ? passSpeed(td, passArrival(t)) : passSpeed(td), 0, error);
   }
   s.ball.pass = { from: a.id, to: t.id };
   s.stats[a.id].passes += 1;
@@ -182,8 +197,8 @@ export function laneRisk(s: MatchState, a: Agent, tx: number, ty: number): numbe
 
 /**
  * How good a pass to `t` looks for an AI player: forward, open and safe is good. The kid's
- * teammates are keen to find the kid — more so when the kid is calling for it, or hasn't had
- * a kick for a while.
+ * teammates look for the kid a little more than anyone else, a lot more when the kid is calling
+ * for it, and more if the kid hasn't had a kick for a while.
  */
 export function passValue(s: MatchState, a: Agent, t: Agent): number {
   const d = dist(a.x, a.y, t.x, t.y);
@@ -205,7 +220,8 @@ export function passValue(s: MatchState, a: Agent, t: Agent): number {
   if (toGoal < 20 && Math.abs(p.y - MID_Y) < 16) value += 0.8;
   if (t.human && !a.human) {
     const tuning = DIFFICULTY[s.setup.difficulty];
-    value += tuning.passToHuman + Math.min(1.5, s.sinceTouch / 10) + (s.calling > 0 ? 3 : 0);
+    const forgotten = Math.min(KID_FORGOTTEN_MAX, Math.max(0, s.sinceTouch - KID_FORGOTTEN) * KID_FORGOTTEN_RATE);
+    value += tuning.passToHuman + forgotten + (s.calling > 0 ? KID_CALL_BONUS : 0);
   }
   return value;
 }

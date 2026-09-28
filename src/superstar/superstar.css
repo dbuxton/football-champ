@@ -366,6 +366,16 @@ button {
   background: linear-gradient(90deg, var(--yellow), var(--green));
 }
 
+/* Out of sprint: an orange bar and a friendly reminder until it's back up to half. */
+.ss-energy-tired .ss-energy-bar span {
+  background: #ff9f43;
+}
+
+.ss-energy-word {
+  font-size: 0.85rem;
+  color: #ffd23f;
+}
+
 .ss-minimap {
   position: absolute;
   right: 14px;

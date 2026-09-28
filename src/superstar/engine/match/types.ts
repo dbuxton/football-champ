@@ -82,6 +82,8 @@ export type Agent = {
   hold: number;
   /** Sprint energy, 0–1 (the kid's only). */
   energy: number;
+  /** Ran out of sprint: can't sprint again until energy is back to TIRED_UNTIL (the kid's only). */
+  tired: boolean;
   /** Who passed them the ball, for assists. -1 when they won it themselves. */
   receivedFrom: number;
   /** An AI dribbler's chosen direction. */

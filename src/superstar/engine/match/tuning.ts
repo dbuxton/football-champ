@@ -34,9 +34,16 @@ export const ACCEL = 18;
 export const HUMAN_ACCEL = 28;
 export const SPRINT_BOOST = 1.22;
 export const DRIBBLE_SLOWDOWN = 0.9;
-/** Sprint energy used and won back per second. */
-export const SPRINT_DRAIN = 0.32;
-export const SPRINT_RECOVER = 0.2;
+/**
+ * Sprint energy (0–1) used per second of sprinting, for an average stamina: about four seconds of
+ * sprint from full, longer for a fitter kid.
+ */
+export const SPRINT_DRAIN = 0.25;
+/** Energy won back per second: faster standing or walking than running. */
+export const SPRINT_RECOVER_RESTING = 0.3;
+export const SPRINT_RECOVER_RUNNING = 0.12;
+/** Run the bar empty and the kid is tired: no sprinting until it's back up to this. */
+export const TIRED_UNTIL = 0.5;
 
 export const TACKLE_RANGE = 1.25;
 export const HUMAN_TACKLE_RANGE = 1.2;
@@ -49,6 +56,19 @@ export const SLIDE_RECOVER = 0.4;
 /** Seconds an AI player waits between decisions on the ball. */
 export const DECIDE_MIN = 0.2;
 export const DECIDE_MAX = 0.38;
+/** Seconds a computer player takes to control the ball before deciding what to do with it. */
+export const FIRST_TOUCH_MIN = 0.22;
+export const FIRST_TOUCH_MAX = 0.42;
+
+/** How much more a teammate wants to pass to the kid while the kid is calling for it. */
+export const KID_CALL_BONUS = 3;
+/**
+ * A kid who hasn't touched the ball for KID_FORGOTTEN seconds gets looked for a bit more, rising
+ * by KID_FORGOTTEN_RATE a second up to KID_FORGOTTEN_MAX, so nobody is left out of a match.
+ */
+export const KID_FORGOTTEN = 10;
+export const KID_FORGOTTEN_RATE = 0.04;
+export const KID_FORGOTTEN_MAX = 0.8;
 
 /** How long a goal celebration and half time last. */
 export const GOAL_PAUSE = 3.2;
@@ -69,7 +89,10 @@ export type DifficultyTuning = {
   humanProtection: number;
   /** Added to the kid's chance of winning a tackle. */
   humanTackleBonus: number;
-  /** How much the kid's teammates like passing to them. */
+  /**
+   * How much the kid's teammates like passing to them, on top of it being a good pass. Small: they
+   * play the right pass, and give it to the kid when the kid calls for it (see KID_CALL_BONUS).
+   */
   passToHuman: number;
   /** Scales the opposition keeper's reach and diving speed. */
   keeperFactor: number;
@@ -87,7 +110,7 @@ export const DIFFICULTY: Record<Difficulty, DifficultyTuning> = {
     tackleRateOnHuman: 1.7,
     humanProtection: 0.76,
     humanTackleBonus: 0.16,
-    passToHuman: 1.95,
+    passToHuman: 0.7,
     keeperFactor: 0.89,
     markSlack: 3,
     stepOut: 0.7,
@@ -99,7 +122,7 @@ export const DIFFICULTY: Record<Difficulty, DifficultyTuning> = {
     tackleRateOnHuman: 2.0,
     humanProtection: 0.85,
     humanTackleBonus: 0.12,
-    passToHuman: 1.7,
+    passToHuman: 0.5,
     keeperFactor: 0.9,
     markSlack: 2,
     stepOut: 0.85,
@@ -111,7 +134,7 @@ export const DIFFICULTY: Record<Difficulty, DifficultyTuning> = {
     tackleRateOnHuman: 2.2,
     humanProtection: 1,
     humanTackleBonus: 0.04,
-    passToHuman: 1.1,
+    passToHuman: 0.3,
     keeperFactor: 1,
     markSlack: 1.5,
     stepOut: 0.9,
@@ -193,6 +216,11 @@ export const LEAD_LANE_RISK = 1.5;
 export const LEAD_REACTION = 0.25;
 /** How fast a pass into space is still rolling when it reaches the runner, m/s. */
 export const LEAD_ARRIVE = 3.2;
+/**
+ * Passes to the kid are played firmer (still rolling this fast when they arrive), so they get
+ * there sooner and a running kid doesn't have to wait for them.
+ */
+export const KID_PASS_ARRIVE = 6;
 
 /** How far out a computer player will shoot from: this, plus more for a better shooter. */
 export const SHOOT_RANGE = 18;

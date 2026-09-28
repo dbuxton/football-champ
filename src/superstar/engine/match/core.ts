@@ -3,6 +3,8 @@ import {
   AIR_DRAG,
   DECIDE_MAX,
   DECIDE_MIN,
+  FIRST_TOUCH_MAX,
+  FIRST_TOUCH_MIN,
   GRAVITY,
   KICK_COOLDOWN,
   ROLL_DECEL,
@@ -62,7 +64,7 @@ export function giveBall(s: MatchState, a: Agent): void {
   ball.z = 0;
   ball.vz = 0;
   a.hold = 0;
-  a.decide = s.rng.float(0.08, 0.2);
+  a.decide = s.rng.float(FIRST_TOUCH_MIN, FIRST_TOUCH_MAX);
   s.stats[a.id].touches += 1;
   if (a.human) s.sinceTouch = 0;
 

@@ -127,9 +127,11 @@ export function RatingBubble({ rating, size = 'normal' }: { rating: number; size
   );
 }
 
-/** Your last few ratings, oldest first, as coloured bubbles. */
-export function FormStrip({ ratings }: { ratings: number[] }) {
-  if (ratings.length === 0) return <span className="ss-small">No matches yet — your first one is coming up!</span>;
+/** Your last few ratings at a club, oldest first, as coloured bubbles. `club` names it once you've moved. */
+export function FormStrip({ ratings, club }: { ratings: number[]; club?: string }) {
+  if (ratings.length === 0) {
+    return <span className="ss-small">{club ? `No matches for ${club} yet — your first one is coming up!` : 'No matches yet — your first one is coming up!'}</span>;
+  }
   return (
     <span className="ss-row" style={{ gap: 6 }}>
       {ratings.map((r, i) => (

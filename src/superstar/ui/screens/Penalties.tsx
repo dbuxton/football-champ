@@ -116,7 +116,7 @@ export function Penalties({ career }: { career: Career }) {
   return (
     <div className="ss-app ss-club-bg">
       {done && winner === 0 && <Confetti colours={[club.colour, club.colour2, '#ffd23f', '#ff4f9a']} />}
-      <main className="ss-screen" style={{ alignItems: 'center' }}>
+      <main className="ss-screen ss-penalties-screen" style={{ alignItems: 'center' }}>
         <h1 className="ss-headline ss-pop">Penalties!</h1>
         {cup && (
           <p className="ss-next-label" style={{ background: cup.colour, color: '#fff' }}>

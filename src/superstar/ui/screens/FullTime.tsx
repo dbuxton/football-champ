@@ -1,6 +1,6 @@
 import { getClub } from '../../data/clubs';
 import { BADGES } from '../../engine/badges';
-import { rankOf, thresholds, type Career, type MatchSummary } from '../../engine/career';
+import { barsFor, type Career, type MatchSummary } from '../../engine/career';
 import { CUP_STAGES, CUPS } from '../../engine/cup';
 import { ratingWord } from '../../engine/rating';
 import { afterMatch, useGame } from '../../store/game';
@@ -105,7 +105,7 @@ export function FullTime({ career }: { career: Career }) {
             )}
             {!pending && summary.verdict.kind === 'stay' && (
               <p className="ss-small">
-                Your form is {summary.verdict.form.toFixed(1)}. Average {thresholds(rankOf(career, club.id)).up.toFixed(1)} and bigger clubs will call!
+                Your form is {summary.verdict.form.toFixed(1)}. Average {barsFor(career, club.id).up.toFixed(1)} and bigger clubs will call!
               </p>
             )}
             <p className="ss-points">💪 +{summary.points} training points</p>
@@ -125,7 +125,7 @@ export function FullTime({ career }: { career: Career }) {
           </section>
         </div>
 
-        <div className="ss-row" style={{ justifyContent: 'center' }}>
+        <div className="ss-row ss-go-bar">
           <button type="button" className="ss-btn ss-btn-green ss-btn-big" onClick={afterMatch}>
             {pending ? '📰 Transfer news!' : 'Carry on →'}
           </button>

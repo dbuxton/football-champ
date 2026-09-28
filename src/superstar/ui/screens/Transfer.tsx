@@ -1,6 +1,6 @@
 import { CLUBS, getClub } from '../../data/clubs';
 import { squadFor, squadStrength } from '../../data/squads';
-import { nextMatch, rankOf, thresholds, type Career } from '../../engine/career';
+import { barsFor, nextMatch, rankOf, type Career } from '../../engine/career';
 import { afterTransfer, chooseTransfer, useGame } from '../../store/game';
 import { playSound } from '../sound';
 import { Confetti, ordinal, useEnterToContinue } from '../components/Bits';
@@ -56,7 +56,7 @@ export function Transfer({ career }: { career: Career }) {
                   <li>
                     Star player: {star.name} ({star.ability})
                   </li>
-                  <li>They expect a form of {thresholds(rank).down.toFixed(1)} or better</li>
+                  <li>They expect a form of {barsFor(career, id).down.toFixed(1)} or better</li>
                 </ul>
                 <button type="button" className="ss-btn ss-btn-green ss-wide" onClick={() => choose(id)}>
                   ✍️ Sign for {c.shortName}!

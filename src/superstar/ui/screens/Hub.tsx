@@ -10,7 +10,7 @@ import {
   nextMatch,
   rankOf,
   seasonLabel,
-  thresholds,
+  barsFor,
   type Career,
 } from '../../engine/career';
 import { CUP_AFTER, CUP_STAGES, CUPS, FINAL_STADIUM } from '../../engine/cup';
@@ -101,7 +101,7 @@ function FormCard({ career }: { career: Career }) {
   const rank = rankOf(career, club.id);
   const ratings = clubRatings(career);
   const f = form(career);
-  const { up, down } = thresholds(rank);
+  const { up, down } = barsFor(career);
   const played = currentStint(career).matches;
   const left = SETTLE_MATCHES - played;
 
@@ -127,7 +127,7 @@ function FormCard({ career }: { career: Career }) {
   return (
     <section className="ss-card" aria-label="Your form">
       <h2>Your form</h2>
-      <FormStrip ratings={ratings.slice(-5)} />
+      <FormStrip ratings={ratings.slice(-5)} club={career.matches.length > 0 ? club.shortName : undefined} />
       {f !== null && played >= 1 && (
         <div className="ss-meter" aria-label={`Form ${f.toFixed(1)}`}>
           <div className="ss-meter-down" style={{ width: pos(down) }}>

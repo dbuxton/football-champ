@@ -1502,6 +1502,14 @@ li.ss-row-you {
   }
 }
 
+/* The button that carries on, kept in view at the bottom of a long screen (lots of new badges). */
+.ss-go-bar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  justify-content: center;
+}
+
 /* ─── Penalties ────────────────────────────────────────────────────────── */
 
 .ss-shootout-board {
@@ -1553,12 +1561,19 @@ li.ss-row-you {
   font-size: 1.6rem;
 }
 
+/* The goal shrinks on short screens so the shoot and dive buttons always fit without scrolling:
+   everything else on the screen takes about 540px, and the goal is 100 wide for every 62 tall. */
 .ss-goal-view {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: min(620px, 100%);
+  width: min(620px, 100%, max(280px, calc((100vh - 540px) * 1.6)));
+  width: min(620px, 100%, max(280px, calc((100dvh - 540px) * 1.6)));
+}
+
+.ss-penalties-screen {
+  gap: 12px;
 }
 
 .ss-goal-svg {

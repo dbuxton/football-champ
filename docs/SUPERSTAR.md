@@ -57,6 +57,17 @@ s.careers.forEach((c) => (c.halfMinutes = 0.1)); localStorage.setItem(k, JSON.st
    teammates love passing to you. There are throw-ins, corners, goal kicks, headers, saves and parries,
    posts and goal celebrations. The camera follows you and the ball, and a radar in the corner shows the
    whole pitch.
+   - **Passes go into space.** A pass to a player running towards goal (including you) is played in
+     front of them, where they'll be when it arrives, as long as they'll get there before a defender
+     (`leadPoint` in `engine/match/actions.ts`). Anyone standing still, or running elsewhere, gets it
+     to their feet. Forwards and wingers make runs in behind the defence to be passed into.
+   - **Defenders defend as a team** (`engine/match/defend.ts`). The defender who can get goal-side
+     of the attacker on the ball soonest steps out to meet them. They react a moment late, so running
+     straight at them gets you tackled but a quick change of direction can get you past. A player
+     caught behind the ball sprints back goal-side. The back four mark attackers near goal from the
+     goal side, following their runs, and the rest hold a line that steps up and drops with the
+     ball. Defenders pick up whoever a pass is going to while it's still travelling. On easy the
+     opponents step out later and mark you more loosely (`stepOut`, `markSlack` in `DIFFICULTY`).
 5. **Full time.** You get a **rating out of 10**, your stats, any new badges and training points.
    The rating counts what you did per standard 4-minute match (`STANDARD_HALF_SECONDS` in
    `engine/rating.ts`), so 3-minute and 6-minute matches are judged fairly.
@@ -69,8 +80,8 @@ s.careers.forEach((c) => (c.halfMinutes = 0.1)); localStorage.setItem(k, JSON.st
      below and you move down. So weak, average and good players each find a natural home.
    - Clubs expect 0.06 more for every point training has added to your overall rating
      (`EXPECT_PER_OVERALL`, up to 30 points), so training makes you better on the pitch but it's
-     still how you play that moves you. Nothing expects more than 8.5, so the top stays reachable.
-   - Easy expects 0.15 more and hard 0.8 less (`EXPECT_FOR_DIFFICULTY`): less than the difference
+     still how you play that moves you. Nothing expects more than 8.8, so the top stays reachable.
+   - Easy expects 0.35 more and hard 1.0 less (`EXPECT_FOR_DIFFICULTY`): less than the difference
      the difficulty makes to ratings, so easy gives a small leg-up and hard a small handicap.
    - It's all in `thresholds()` / `barsFor()` in `engine/career.ts`.
 7. **Season.** There are 19 league matches, one against every other club. Other results are simulated
@@ -108,8 +119,9 @@ src/superstar/
     match/
       types.ts               match state, players, ball, events, input
       sim.ts                 createMatch / stepMatch: movement, ball physics, contacts, rules, restarts, clock
-      ai.ts                  computer players: shape, chasing, pressing, marking, decisions, keepers
-      actions.ts             passing, shooting, crossing, headers, who the kid's pass goes to
+      ai.ts                  computer players: shape, chasing, runs in behind, decisions, keepers
+      defend.ts              defending as a team: meet the attack, chase back, mark, hold the line
+      actions.ts             passing (into space), shooting, crossing, headers, who the kid's pass goes to
       core.ts                shared helpers (kick, taking the ball, predicting the ball)
       tuning.ts              EVERY match number, including difficulty settings
       bot.ts                 a pretend kid at the controls, used by the balance scripts (not in the game)
@@ -132,7 +144,9 @@ src/superstar/
     components/              Kit.tsx (shirts, badges, the footballer drawing), Bits.tsx (player cards,
                              mini cards, rating bubbles, top bar, confetti…)
     sound.ts                 synthesised whistle, kicks, crowd
-scripts/superstar/           headless balance scripts (sim, grid, rating, journey); see the header of each
+scripts/superstar/           headless balance scripts; see the header of each:
+                             sim, grid (goals), rating, journey (careers), football (how defenders and
+                             passes behave), frames (tactics-board snapshots of attacks, as SVG)
 ```
 
 ## Where we are
@@ -175,9 +189,11 @@ scripts/superstar/           headless balance scripts (sim, grid, rating, journe
 
   | Robot kid | Easy | Medium | Hard |
   |---|---|---|---|
-  | Weak (0.2) | 18.0 | 19.1 | 18.6 |
-  | Average (0.5) | 4.4 | 9.4 | 13.9 |
-  | Good (0.8) | 1.0 | 1.0 | 4.3 |
+  | Weak (0.2) | 18.4 | 18.1 | 18.6 |
+  | Average (0.5) | 3.0 | 9.1 | 12.8 |
+  | Good (0.8) | 1.1 | 3.1 | 5.4 |
+
+  (Measured again after the computer players learned to defend and pass into space; see below.)
 
   Before the rework, on medium the average kid reached the 1st-biggest club, on easy even the weak
   kid did, and the result also depended on match length (60s halves rated about a point lower than
@@ -194,6 +210,14 @@ scripts/superstar/           headless balance scripts (sim, grid, rating, journe
   and fixed three bugs: offers near the top or bottom of the ladder only ever gave one club, a save
   could keep duplicate player ids, and Champions / Golden Boot badges were dated a season late.
 - [x] **README** describes both games.
+- [x] **Computer players defend and pass like footballers** (after the first play-test: "defenders
+  don't come out to meet attacks or mark strikers, and passes go to feet instead of in front").
+  Measured with `scripts/superstar/football.ts`, medium: the nearest defender between a ball carrier
+  and goal, within 30m of goal, went from ~10m to ~4m away; attackers without the ball in the final
+  third from ~12m to ~6m. Passes into space for runners towards goal, with runs in behind to find.
+  Goals for the robot kid (4-minute matches, 30 each): easy 1.0 / 1.5 / 2.2, medium 0.7 / 0.9 / 1.4,
+  hard 0.4 / 0.1 / 0.7 (weak / average / good), a little lower on medium than before. Computer
+  against computer now scores about 1.5 a match (it was 3.4, with nobody defending).
 
 ### Still to do (in rough order)
 

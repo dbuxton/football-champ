@@ -31,7 +31,9 @@ npx vitest run src/superstar   # Superstar's unit tests (a few seconds)
 
 **Controls:** arrow keys (or WASD) to run, **X** to pass (or shout for the ball when a teammate has it),
 hold **Space** to shoot (longer = harder; too long goes over the bar), **Shift** to sprint, **Esc** to
-pause. Hold ↑ or ↓ while shooting to aim for a corner; otherwise the shot aims away from the keeper.
+pause. Sprinting lasts about four seconds (longer with more Stamina); run the ⚡ bar empty and you
+have to catch your breath until it's back to half, which is quicker standing or walking than
+running. Hold ↑ or ↓ while shooting to aim for a corner; otherwise the shot aims away from the keeper.
 Without the ball, **Space** is a slide tackle, and running into whoever has the ball tries a tackle. A
 game controller works too (A pass, B shoot, a trigger to sprint). On a touchscreen there's a
 thumb-stick and PASS / SHOOT / SPRINT buttons.
@@ -54,13 +56,15 @@ s.careers.forEach((c) => (c.halfMinutes = 0.1)); localStorage.setItem(k, JSON.st
 3. **Before kick-off** both line-ups appear as player cards: rating, position, shirt number, flag and
    age for every real player.
 4. **The match.** It's 11-a-side, and you control only your player (yellow ring and name tag). Your
-   teammates love passing to you. There are throw-ins, corners, goal kicks, headers, saves and parries,
+   teammates play the pass that's on, and give it to you when you call for it (press pass without
+   the ball); if you haven't had a touch for a while they look for you a bit more. There are throw-ins, corners, goal kicks, headers, saves and parries,
    posts and goal celebrations. The camera follows you and the ball, and a radar in the corner shows the
    whole pitch.
-   - **Passes go into space.** A pass to a player running towards goal (including you) is played in
-     front of them, where they'll be when it arrives, as long as they'll get there before a defender
-     (`leadPoint` in `engine/match/actions.ts`). Anyone standing still, or running elsewhere, gets it
-     to their feet. Forwards and wingers make runs in behind the defence to be passed into.
+   - **Passes go into space.** A pass to a computer player running towards goal is played in front
+     of them, where they'll be when it arrives, as long as they'll get there before a defender
+     (`leadPoint` in `engine/match/actions.ts`); anyone standing still, or running elsewhere, gets it
+     to their feet. Passes to you always go where you'll be when the ball arrives, whichever way
+     you're running, and a little firmer, so they're never played behind you. Forwards and wingers make runs in behind the defence to be passed into.
    - **Defenders defend as a team** (`engine/match/defend.ts`). The defender who can get goal-side
      of the attacker on the ball soonest steps out to meet them. They react a moment late, so running
      straight at them gets you tackled but a quick change of direction can get you past. A player
@@ -75,13 +79,13 @@ s.careers.forEach((c) => (c.halfMinutes = 0.1)); localStorage.setItem(k, JSON.st
    least 3 matches at a club before a move, or only 2 if both were brilliant.
    - **Good form:** 2–3 bigger clubs make offers. Pick one, or stay.
    - **Poor form:** you're moved to a smaller club, choosing from 2.
-   - Every club expects a level of form: 6.0 at the smallest club rising to 7.9 at the biggest
+   - Every club expects a level of form: 6.3 at the smallest club rising to 8.2 at the biggest
      (`EXPECTED`). Average more than 0.75 above it (`BAND`) and bigger clubs call; more than 0.75
      below and you move down. So weak, average and good players each find a natural home.
    - Clubs expect 0.06 more for every point training has added to your overall rating
      (`EXPECT_PER_OVERALL`, up to 30 points), so training makes you better on the pitch but it's
-     still how you play that moves you. Nothing expects more than 8.8, so the top stays reachable.
-   - Easy expects 0.35 more and hard 1.0 less (`EXPECT_FOR_DIFFICULTY`): less than the difference
+     still how you play that moves you. Nothing expects more than 9.1, so the top stays reachable.
+   - Easy expects 0.35 more and hard 0.85 less (`EXPECT_FOR_DIFFICULTY`): less than the difference
      the difficulty makes to ratings, so easy gives a small leg-up and hard a small handicap.
    - It's all in `thresholds()` / `barsFor()` in `engine/career.ts`.
 7. **Season.** There are 19 league matches, one against every other club. Other results are simulated
@@ -189,11 +193,12 @@ scripts/superstar/           headless balance scripts; see the header of each:
 
   | Robot kid | Easy | Medium | Hard |
   |---|---|---|---|
-  | Weak (0.2) | 18.4 | 18.1 | 18.6 |
-  | Average (0.5) | 3.0 | 9.1 | 12.8 |
-  | Good (0.8) | 1.1 | 3.1 | 5.4 |
+  | Weak (0.2) | 19.4 | 18.9 | 18.8 |
+  | Average (0.5) | 4.1 | 9.5 | 15.9 |
+  | Good (0.8) | 1.0 | 1.8 | 3.9 |
 
-  (Measured again after the computer players learned to defend and pass into space; see below.)
+  (Measured again after the computer players learned to defend and pass into space, teammates
+  stopped giving the kid every pass, and sprinting started to tire you; see below.)
 
   Before the rework, on medium the average kid reached the 1st-biggest club, on easy even the weak
   kid did, and the result also depended on match length (60s halves rated about a point lower than
@@ -218,6 +223,9 @@ scripts/superstar/           headless balance scripts; see the header of each:
   Goals for the robot kid (4-minute matches, 30 each): easy 1.0 / 1.5 / 2.2, medium 0.7 / 0.9 / 1.4,
   hard 0.4 / 0.1 / 0.7 (weak / average / good), a little lower on medium than before. Computer
   against computer now scores about 1.5 a match (it was 3.4, with nobody defending).
+- [x] **Second play-test fixes:** teammates no longer pass to the kid every time (about 28% of their
+  passes now, from 47%; calling for it still works), passes to the kid go where they'll be rather
+  than behind them (collected 77%, from 52%), and sprinting tires you out (see Controls).
 
 ### Still to do (in rough order)
 

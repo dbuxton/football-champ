@@ -31,10 +31,13 @@ npx vitest run src/superstar   # Superstar's unit tests (a few seconds)
 
 **Controls:** arrow keys (or WASD) to run, **X** to pass (or shout for the ball when a teammate has it),
 hold **Space** to shoot (longer = harder; too long goes over the bar), **Shift** to sprint, **Esc** to
-pause. Sprinting lasts about four seconds (longer with more Stamina); run the ⚡ bar empty and you
+pause. Without the ball, **Space** is a slide tackle when the other team has it; otherwise holding it
+gets you ready to hit the ball **first time** as it arrives (a corner, a cross, a pass): a volley at
+your feet or a header at head height, straight at goal. Let go before it arrives to control it
+instead. Sprinting lasts about four seconds (longer with more Stamina); run the ⚡ bar empty and you
 have to catch your breath until it's back to half, which is quicker standing or walking than
 running. Hold ↑ or ↓ while shooting to aim for a corner; otherwise the shot aims away from the keeper.
-Without the ball, **Space** is a slide tackle, and running into whoever has the ball tries a tackle. A
+Running into whoever has the ball tries a tackle. A
 game controller works too (A pass, B shoot, a trigger to sprint). On a touchscreen there's a
 thumb-stick and PASS / SHOOT / SPRINT buttons.
 

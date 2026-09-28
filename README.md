@@ -15,7 +15,8 @@ Made from a kid's wish list: be a Premier League footballer and play the matches
   look, any of the 20 Premier League clubs with their real squads, a difficulty and a match length.
 - **Play every match yourself**, 11-a-side in real time. You control only your player; teammates and
   opponents are computer players. Arrow keys or WASD to run, **X** to pass, hold **Space** to shoot,
-  **Shift** to sprint (for a few seconds, then catch your breath), **Esc** to pause. A game controller and touchscreens work too.
+  **Shift** to sprint (for a few seconds, then catch your breath), **Esc** to pause. Hold **Space**
+  as a corner or cross comes in to hit it first time. A game controller and touchscreens work too.
 - **Get a rating out of 10** after every match. Play well over a few matches and bigger clubs make
   offers; have a tough run and you move to a smaller club. Each club expects a level of form, bigger
   clubs expect more, and clubs expect more as training makes you better.

@@ -234,8 +234,13 @@ export type MatchState = {
   /** Buttons held last frame, to spot new presses. */
   prevPass: boolean;
   prevShoot: boolean;
-  /** Seconds the shoot button has been held on the ball, or -1 when not charging a shot. */
+  /**
+   * Seconds the shoot button has been held on the ball, or -1 when not charging a shot. Without
+   * the ball it's the kid getting ready to strike the ball first time as it arrives.
+   */
   charge: number;
+  /** Which way the kid is pushing up or down (-1…1), to aim a first-time shot. */
+  aimY: number;
   /** Seconds left on the kid's shout for the ball. */
   calling: number;
   /** Seconds since the kid last touched the ball. */

@@ -27,6 +27,8 @@ export const KEEPER_RADIUS = 1.35;
 export const HEAD_MIN = 1.0;
 export const HEAD_MAX = 2.6;
 export const HEADER_RADIUS = 0.85;
+/** The player a cross is meant for reaches a bit further to head it, like receiving a pass. */
+export const HEADER_RECEIVE_RADIUS = 1.2;
 /** Seconds before a player who has just kicked the ball can touch it again. */
 export const KICK_COOLDOWN = 0.28;
 
@@ -225,6 +227,16 @@ export const KID_PASS_ARRIVE = 6;
 /** How far out a computer player will shoot from: this, plus more for a better shooter. */
 export const SHOOT_RANGE = 18;
 export const SHOOT_RANGE_SKILL = 12;
+
+/**
+ * First-time shots (the kid holding shoot as the ball arrives): a little less accurate than a
+ * shot from a controlled ball, by this many degrees. How long shoot is held sets the power, up to
+ * a full-power strike, but never so long it sails over.
+ */
+export const FIRST_TIME_ERROR = 2;
+/** Headers are harder to place still. */
+export const HEADER_ERROR = 4;
+export const FIRST_TIME_MAX_CHARGE = 0.95;
 
 /** How often an AI player next to someone else on the ball tries a tackle, per second. */
 export const TACKLE_RATE = 2.6;

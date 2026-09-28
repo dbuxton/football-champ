@@ -352,7 +352,10 @@ export function MatchScreen({ setup, scene, sound, showHelp, onFinish, onQuit, a
                 <kbd className="ss-kbd-wide">Space</kbd> shoot — hold it for more power
               </li>
               <li>
-                <kbd className="ss-kbd-wide">Shift</kbd> sprint
+                Hold <kbd className="ss-kbd-wide">Space</kbd> as a corner comes in to hit it first time
+              </li>
+              <li>
+                <kbd className="ss-kbd-wide">Shift</kbd> sprint — then catch your breath
               </li>
             </ul>
           )}

@@ -35,6 +35,7 @@ import {
   GRAVITY,
   HALF_TIME_PAUSE,
   HEADER_RADIUS,
+  HEADER_RECEIVE_RADIUS,
   HEAD_MAX,
   HEAD_MIN,
   HUMAN_ACCEL,
@@ -46,6 +47,9 @@ import {
   SLIDE_RECOVER,
   SLIDE_SPEED,
   SLIDE_TIME,
+  FIRST_TIME_ERROR,
+  FIRST_TIME_MAX_CHARGE,
+  HEADER_ERROR,
   SPRINT_BOOST,
   SPRINT_DRAIN,
   SPRINT_RECOVER_RESTING,
@@ -147,6 +151,7 @@ export function createMatch(setup: MatchSetup): MatchState {
     prevPass: false,
     prevShoot: false,
     charge: -1,
+    aimY: 0,
     calling: 0,
     sinceTouch: 0,
   };
@@ -309,14 +314,44 @@ function humanControl(s: MatchState, input: Input, dt: number): void {
     return;
   }
 
-  s.charge = -1;
   if (pressedPass) s.calling = 2;
-  if (pressedShoot && h.tackleCd <= 0 && h.stun <= 0 && h.slide <= 0) {
-    h.slide = SLIDE_TIME;
-    h.tackleCd = 1;
-    h.vx = h.fx * SLIDE_SPEED;
-    h.vy = h.fy * SLIDE_SPEED;
+  const theirBall = s.ball.owner >= 0 && s.agents[s.ball.owner].side !== h.side;
+  if (theirBall) {
+    // The other team has it: shoot means a slide tackle.
+    s.charge = -1;
+    if (pressedShoot && h.tackleCd <= 0 && h.stun <= 0 && h.slide <= 0) {
+      h.slide = SLIDE_TIME;
+      h.tackleCd = 1;
+      h.vx = h.fx * SLIDE_SPEED;
+      h.vy = h.fy * SLIDE_SPEED;
+    }
+    return;
   }
+  // Otherwise holding shoot gets ready to strike the ball first time when it arrives (see
+  // `firstTime`); let go and it's controlled as usual.
+  // Held counts, not just pressed: a kid holds it through the corner being taken.
+  if (!input.shoot) s.charge = -1;
+  else if (s.charge < 0) s.charge = 0;
+  else s.charge = Math.min(FIRST_TIME_MAX_CHARGE, s.charge + dt);
+  s.aimY = input.y;
+}
+
+/**
+ * The kid strikes the ball first time, without controlling it: a volley, a shot on the half
+ * volley, or a header at head height. Power from how long shoot was held, aimed like any shot.
+ */
+function firstTime(s: MatchState, h: Agent): void {
+  const ball = s.ball;
+  const from = ball.pass?.from ?? ball.last;
+  h.receivedFrom = from >= 0 && from !== h.id && s.agents[from].side === h.side ? from : -1;
+  s.stats[h.id].touches += 1;
+  s.sinceTouch = 0;
+  const headed = ball.z > 0.9;
+  const power = clamp(0.3 + (Math.max(0, s.charge) / 0.75) * 0.7, 0.3, 1);
+  const y = Math.abs(s.aimY) > 0.3 ? MID_Y + Math.sign(s.aimY) * 2.9 : smartAim(s, h, 2.2);
+  // A header is placed rather than blasted.
+  shoot(s, h, { y, height: headed ? 0.6 : 0.35 + power * 1.1, power: headed ? Math.min(power, 0.35) : power }, headed ? HEADER_ERROR : FIRST_TIME_ERROR);
+  s.charge = -1;
 }
 
 /** A kick-off taken by the kid starts play the moment they touch the ball. */
@@ -562,7 +597,15 @@ function headers(s: MatchState): void {
       best = a;
     }
   }
-  if (best) header(s, best);
+  // Whoever the cross was meant for gets it ahead of their own teammates (they leave it), but a
+  // defender who gets there first still wins it.
+  const meant = ball.pass ? s.agents[ball.pass.to] : null;
+  if (meant && !meant.keeper && meant.kickCd <= 0 && meant.stun <= 0 && meant.slide <= 0 && (!best || best.side === meant.side)) {
+    if (dist(meant.x, meant.y, ball.x, ball.y) < HEADER_RECEIVE_RADIUS) best = meant;
+  }
+  if (!best) return;
+  if (best.human && s.charge >= 0 && s.phase === 'play') firstTime(s, best);
+  else header(s, best);
 }
 
 function pickups(s: MatchState): void {
@@ -583,6 +626,12 @@ function pickups(s: MatchState): void {
     }
   }
   if (!best) return;
+
+  // The kid, ready for it: strike it first time.
+  if (best.human && s.charge >= 0 && s.phase === 'play') {
+    firstTime(s, best);
+    return;
+  }
 
   // A hard shot or pass hitting someone who wasn't expecting it may just bounce off them.
   const speed = ballSpeed(ball);
@@ -894,7 +943,8 @@ function stepRestart(s: MatchState, dt: number): void {
 
   s.phase = 'play';
   s.restart = null;
-  s.grace = 0.9;
+  // The other team hangs back a moment after a restart; not at a corner, where they're marking.
+  s.grace = restart.kind === 'corner' ? 0 : 0.9;
   switch (restart.kind) {
     case 'kickoff': {
       const mates = s.agents.filter((a) => a.side === taker.side && (a.slot === 6 || a.slot === 7));
@@ -925,11 +975,14 @@ function stepRestart(s: MatchState, dt: number): void {
       const kid = s.agents[s.humanId];
       let tx = gx - sign * s.rng.float(6, 11);
       let ty = MID_Y + s.rng.float(-6, 6);
-      if (taker.side === 0 && Math.abs(kid.x - gx) < 18 && Math.abs(kid.y - MID_Y) < 14 && s.rng.chance(0.7)) {
+      const forKid = taker.side === 0 && Math.abs(kid.x - gx) < 18 && Math.abs(kid.y - MID_Y) < 14 && s.rng.chance(0.7);
+      if (forKid) {
         tx = kid.x;
         ty = kid.y;
       }
       crossTo(s, taker, tx, ty);
+      // Aimed at the kid, it's the kid's ball: teammates leave it, and the kid reaches further.
+      if (forKid) s.ball.pass = { from: taker.id, to: kid.id };
       break;
     }
     case 'goal-kick':

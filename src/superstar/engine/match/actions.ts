@@ -110,16 +110,17 @@ export type ShotAim = {
   power: number;
 };
 
-/** Shoot at the goal the player's team attacks. */
-export function shoot(s: MatchState, a: Agent, aim: ShotAim): void {
+/** Shoot at the goal the player's team attacks. `extraError` (degrees) makes it harder to place. */
+export function shoot(s: MatchState, a: Agent, aim: ShotAim, extraError = 0): void {
   const gx = attackGoalX(a.side) + attackSign(a.side) * 0.4;
   const speed = 15 + 16 * aim.power;
   const d = dist(a.x, a.y, gx, aim.y);
   const flight = d / speed;
-  const vz = clamp((aim.height + 0.5 * GRAVITY * flight * flight) / flight, 0, 14);
+  // From wherever the ball is now: on the grass, or up at head height for a header or volley.
+  const vz = clamp((aim.height - s.ball.z + 0.5 * GRAVITY * flight * flight) / flight, -8, 14);
   const pressure = pressureOn(s, a);
   const error =
-    (1 - a.skills.shooting) * (a.human ? 4.5 : 7) + (a.human ? 1 : 2) + (pressure < 2 ? 2 : 0) + aim.power * 1.2;
+    (1 - a.skills.shooting) * (a.human ? 4.5 : 7) + (a.human ? 1 : 2) + (pressure < 2 ? 2 : 0) + aim.power * 1.2 + extraError;
   kick(s, a, gx, aim.y, speed, vz, error);
   s.ball.shot = { by: a.id };
   s.stats[a.id].shots += 1;

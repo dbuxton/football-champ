@@ -281,14 +281,53 @@ export function form(career: Career): number | null {
 
 /**
  * The form a club needs to see to sell you on to a bigger club, and the form below which it moves
- * you to a smaller one. Bigger clubs expect more on both counts.
+ * you to a smaller one.
+ *
+ * Every club has a level it expects (`EXPECTED`): the biggest club expects a lot, the smallest a
+ * bit less. Play well above your club's level and a bigger one signs you; well below it and you
+ * move to a smaller one. The levels are spread far enough apart that each kind of player has a
+ * natural home on the ladder, and the band either side (`BAND`) is wide enough that one bad game
+ * doesn't get you moved.
+ *
+ * `trained` is how far your overall rating has come since you started (see `trainedBy`). A
+ * better-trained footballer plays better, so clubs expect more of you: training makes you stronger
+ * on the pitch, but it's still how you play that moves you up or down. `difficulty` matters too:
+ * matches on easy are kinder, so clubs expect a bit more.
  */
-export function thresholds(rank: number): { up: number; down: number } {
+export function thresholds(rank: number, trained = 0, difficulty: Difficulty = 'medium'): { up: number; down: number } {
   const size = (CLUBS.length - rank) / (CLUBS.length - 1);
-  return {
-    up: Math.round((7.5 + 0.35 * size) * 100) / 100,
-    down: Math.round((6.25 + 0.4 * size) * 100) / 100,
-  };
+  const expected = Math.min(
+    EXPECTED.most,
+    EXPECTED.smallest +
+      (EXPECTED.biggest - EXPECTED.smallest) * size +
+      Math.min(Math.max(0, trained), TRAINED_MAX) * EXPECT_PER_OVERALL +
+      EXPECT_FOR_DIFFICULTY[difficulty],
+  );
+  return { up: Math.round((expected + BAND) * 100) / 100, down: Math.round((expected - BAND) * 100) / 100 };
+}
+
+/**
+ * The form each club expects, at the smallest club and at the biggest (on medium, untrained), and
+ * the most any club ever expects (ratings bunch up near 10, so the bar to go up stays reachable).
+ */
+export const EXPECTED = { smallest: 6.0, biggest: 7.9, most: 8.5 };
+/** How far above the expected form gets you a bigger club, and how far below a smaller one. */
+export const BAND = 0.75;
+/** Matches on easy give higher ratings than on hard, so clubs expect a bit more on easy. */
+export const EXPECT_FOR_DIFFICULTY: Record<Difficulty, number> = { easy: 0.5, medium: 0, hard: -0.4 };
+/** How much more form clubs expect for each point your overall rating has gone up through training. */
+export const EXPECT_PER_OVERALL = 0.06;
+/** Overall points past which clubs stop raising the bar (so it never goes out of reach). */
+export const TRAINED_MAX = 30;
+
+/** How many points your overall rating has gone up since you started. */
+export function trainedBy(career: Career): number {
+  return Math.max(0, overall(career.attributes, career.position) - overall(STARTING_ATTRIBUTES[career.position], career.position));
+}
+
+/** The bars at a club for this footballer, as they stand. */
+export function barsFor(career: Career, clubId = career.clubId): { up: number; down: number } {
+  return thresholds(rankOf(career, clubId), trainedBy(career), career.difficulty);
 }
 
 export type Verdict =
@@ -302,7 +341,7 @@ export function verdict(career: Career): Verdict {
   const rank = rankOf(career, career.clubId);
   const played = currentStint(career).matches;
   const f = form(career);
-  const { up, down } = thresholds(rank);
+  const { up, down } = barsFor(career);
   const ratings = clubRatings(career);
   // A wonderkid gets snapped up after two matches.
   const wonderkid = played >= 2 && ratings.slice(-2).every((r) => r >= up + 1.2);
@@ -326,15 +365,21 @@ export function offersFor(career: Career, v: Extract<Verdict, { kind: 'up' | 'do
   const rankOfClub = (club: Club) => clubs.indexOf(club) + 1;
   const dir = v.kind === 'up' ? -1 : 1;
   const [near, far] = v.jump;
-  let band: Club[] = [];
-  for (let reach = far; band.length < 2 && reach <= CLUBS.length; reach++) {
-    band = clubs.filter((club) => {
+  // Clubs `near` to `far` places away; near the top or bottom of the ladder there may not be two
+  // of those, so widen the band both ways (nearer and further) until there are.
+  const within = (lo: number, hi: number) =>
+    clubs.filter((club) => {
       const step = (rankOfClub(club) - rank) * dir;
-      return step >= Math.min(near, reach) && step <= reach;
+      return step >= lo && step <= hi;
     });
+  let lo = near;
+  let hi = far;
+  let band = within(lo, hi);
+  while (band.length < 2 && (lo > 1 || hi < CLUBS.length)) {
+    lo = Math.max(1, lo - 1);
+    hi = Math.min(CLUBS.length, hi + 1);
+    band = within(lo, hi);
   }
-  // Nothing that far away (you're near the top or bottom): the nearest clubs that way will do.
-  if (band.length === 0) band = clubs.filter((club) => (rankOfClub(club) - rank) * dir > 0);
   const rng = new Rng(deriveSeed(seed, `offers:${career.matches.length}`));
   const picked = rng.shuffle([...band]).slice(0, v.kind === 'up' ? 3 : 2);
   return picked.sort((a, b) => rankOfClub(a) - rankOfClub(b)).map((club) => club.id);
@@ -397,7 +442,7 @@ export function recordMatch(
   const kid = state.stats[state.humanId];
   const goalsFor = state.score[0];
   const goalsAgainst = state.score[1];
-  const rating = matchRating({ stats: kid, position: career.position, goalsFor, goalsAgainst });
+  const rating = matchRating({ stats: kid, position: career.position, goalsFor, goalsAgainst, halfSeconds: state.setup.halfSeconds });
 
   const record: MatchRecord = {
     season: career.season,
@@ -515,12 +560,12 @@ function matchBadges(career: Career, m: MatchRecord, tackles: number): BadgeId[]
   return out;
 }
 
-/** Add any badges not already earned; returns just the new ones. */
-function awardBadges(career: Career, ids: BadgeId[]): { career: Career; badges: BadgeId[] } {
+/** Add any badges not already earned (in `season`, this one unless said); returns just the new ones. */
+function awardBadges(career: Career, ids: BadgeId[], season = career.season): { career: Career; badges: BadgeId[] } {
   const fresh = ids.filter((id, index) => !career.badges[id] && ids.indexOf(id) === index && BADGES[id]);
   if (fresh.length === 0) return { career, badges: [] };
   const badges = { ...career.badges };
-  for (const id of fresh) badges[id] = career.season;
+  for (const id of fresh) badges[id] = season;
   return { career: { ...career, badges }, badges: fresh };
 }
 
@@ -621,7 +666,8 @@ export function startNextSeason(
     seasons: [...career.seasons, review.record],
     trophies: [...career.trophies, ...review.trophies],
   };
-  const awarded = awardBadges(next, review.badges);
+  // Champions and Golden Boot badges belong to the season just finished.
+  const awarded = awardBadges(next, review.badges, career.season);
   const changes: SeasonChanges = {
     ladderBefore: ladder(career).map((c) => c.id),
     ladderAfter: ladder(next).map((c) => c.id),

@@ -1,10 +1,12 @@
 /**
  * Superstar balance tool: whole careers played by pretend kids of different skill, through the
  * real career rules (ratings, transfers, cups, seasons, training). Shows where each one ends up.
- * NOT YET RUN — the transfer thresholds in engine/career.ts still need checking with it.
  *
- *   npx vite-node scripts/superstar/journey.ts [skills] [matches] [difficulty] [startRank] [position] [halfSeconds] [notrain]
+ *   npx vite-node scripts/superstar/journey.ts [skills] [matches] [difficulty] [startRank] [position] [halfSeconds] [train|notrain] [careers]
  *   e.g. npx vite-node scripts/superstar/journey.ts 0.2,0.5,0.8 30 easy 12 striker 60
+ *
+ * With one career per skill (the default) it prints the path from club to club. With more, it
+ * prints averages: the rank you end at, the rank you spent your matches at, moves up and down.
  */
 import { Rng } from '../../src/engine/rng';
 import { CLUBS } from '../../src/superstar/data/clubs';
@@ -24,6 +26,7 @@ const startRank = Number(args[3] ?? 12);
 const position = (args[4] ?? 'striker') as any;
 const halfSeconds = Number(args[5] ?? 60);
 const trainSpend = args[6] !== 'notrain';
+const careers = Number(args[7] ?? 1);
 
 function shootout(rng: Rng): [number, number] {
   const ours: PenaltyOutcome[] = [];
@@ -35,31 +38,35 @@ function shootout(rng: Rng): [number, number] {
   return [ours.filter((k) => k === 'goal').length, theirs.filter((k) => k === 'goal').length];
 }
 
-for (const skill of skills) {
-  const t0 = Date.now();
+type Journey = { avg: number; ups: number; downs: number; lastRank: number; meanRank: number; seasons: number; path: string[]; goals: number };
+
+function journey(skill: number, run: number): Journey {
   const clubId = CLUBS[startRank - 1].id;
-  let career: Career = newCareer({ id: 'sim', name: 'Sim', number: 9, position, look: { skin: '#e0ac85', hair: '#000000', hairStyle: 'short', boots: '#ff0000' }, difficulty, halfMinutes: halfSeconds / 60, clubId, seed: 42, today: '2026-01-01' });
-  const rng = new Rng(Math.round(skill * 1000) + 7);
+  const salt = run * 100_003;
+  let career: Career = newCareer({ id: 'sim', name: 'Sim', number: 9, position, look: { skin: '#e0ac85', hair: '#000000', hairStyle: 'short', boots: '#ff0000' }, difficulty, halfMinutes: halfSeconds / 60, clubId, seed: 42 + salt, today: '2026-01-01' });
+  const rng = new Rng(Math.round(skill * 1000) + 7 + salt);
   const path: string[] = [`${career.clubId}(${rankOf(career, career.clubId)})`];
   const ratings: number[] = [];
-  let ups = 0, downs = 0, seasonEnds = 0;
+  const ranks: number[] = [];
+  let ups = 0, downs = 0, goals = 0;
   for (let m = 0; m < matches; m++) {
     const next = nextMatch(career);
     if (!next) {
-      career = startNextSeason(career, 1000 + m).career;
-      seasonEnds++;
+      career = startNextSeason(career, 1000 + m + salt).career;
       m--;
       continue;
     }
-    const setup = lineUp({ seed: 777 + m * 31, clubId: career.clubId, opponentId: next.opponentId, home: next.home !== false, footballer: { name: career.name, number: career.number, position: career.position, attributes: career.attributes }, difficulty, halfSeconds, season: career.season });
+    ranks.push(rankOf(career, career.clubId));
+    const setup = lineUp({ seed: 777 + m * 31 + salt, clubId: career.clubId, opponentId: next.opponentId, home: next.home !== false, footballer: { name: career.name, number: career.number, position: career.position, attributes: career.attributes }, difficulty, halfSeconds, season: career.season });
     const s = createMatch(setup);
-    const bot = makeBot(skill, 5000 + m);
+    const bot = makeBot(skill, 5000 + m + salt);
     let guard = 0;
     while (s.phase !== 'fulltime' && guard++ < 60 * 1000) stepMatch(s, bot(s));
     const pens = next.competition !== 'league' && s.score[0] === s.score[1] ? shootout(rng) : null;
     const rec = recordMatch(career, s, pens);
     career = rec.career;
     ratings.push(rec.summary.rating);
+    goals += rec.summary.record.goals;
     if (career.pending) {
       const pick = career.pending.offers[rng.int(0, career.pending.offers.length - 1)];
       if (career.pending.kind === 'up') ups++; else downs++;
@@ -67,7 +74,7 @@ for (const skill of skills) {
       path.push(`${career.clubId}(${rankOf(career, career.clubId)})`);
     }
     if (trainSpend) {
-      // Spend points on the position's key attributes.
+      // Spend points round the attributes in turn.
       for (let guardT = 0; guardT < 50 && career.points > 0; guardT++) {
         const key = ATTRIBUTE_KEYS[guardT % ATTRIBUTE_KEYS.length];
         const before = career.points;
@@ -76,7 +83,23 @@ for (const skill of skills) {
       }
     }
   }
-  const avg = ratings.reduce((a, b) => a + b, 0) / ratings.length;
-  const lastRank = rankOf(career, career.clubId);
-  console.log(`skill ${skill}: avg rating ${avg.toFixed(2)} ups ${ups} downs ${downs} final rank ${lastRank} seasons ${career.season} | ${path.join(' → ')} | ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  return { avg: mean(ratings), ups, downs, lastRank: rankOf(career, career.clubId), meanRank: mean(ranks), seasons: career.season, path, goals: goals / matches };
+}
+
+for (const skill of skills) {
+  const t0 = Date.now();
+  const runs = Array.from({ length: careers }, (_, run) => journey(skill, run));
+  const secs = ((Date.now() - t0) / 1000).toFixed(1);
+  if (careers === 1) {
+    const j = runs[0];
+    console.log(`skill ${skill}: avg rating ${j.avg.toFixed(2)} ups ${j.ups} downs ${j.downs} final rank ${j.lastRank} seasons ${j.seasons} | ${j.path.join(' → ')} | ${secs}s`);
+    continue;
+  }
+  const mean = (f: (j: Journey) => number) => runs.reduce((a, j) => a + f(j), 0) / runs.length;
+  const finals = runs.map((j) => j.lastRank).sort((a, b) => a - b).join(',');
+  console.log(
+    `skill ${skill}: rating ${mean((j) => j.avg).toFixed(2)} goals ${mean((j) => j.goals).toFixed(2)} ups ${mean((j) => j.ups).toFixed(1)} downs ${mean((j) => j.downs).toFixed(1)} ` +
+      `mean rank ${mean((j) => j.meanRank).toFixed(1)} final rank ${mean((j) => j.lastRank).toFixed(1)} [${finals}] | ${careers} careers ${secs}s`,
+  );
 }

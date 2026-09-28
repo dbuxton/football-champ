@@ -44,7 +44,7 @@ for (const rank of ranks) {
       const bot = makeBot(skill, 300 + i + rank);
       let guard = 0;
       while (s.phase !== 'fulltime' && guard++ < 60 * 400) stepMatch(s, bot(s));
-      const r = matchRating({ stats: s.stats[s.humanId], position, goalsFor: s.score[0], goalsAgainst: s.score[1] });
+      const r = matchRating({ stats: s.stats[s.humanId], position, goalsFor: s.score[0], goalsAgainst: s.score[1], halfSeconds: s.setup.halfSeconds });
       ratings.push(r);
       gls += s.stats[s.humanId].goals;
       if (s.score[0] > s.score[1]) w++;

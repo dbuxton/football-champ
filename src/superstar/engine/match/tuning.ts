@@ -77,14 +77,14 @@ export type DifficultyTuning = {
 
 export const DIFFICULTY: Record<Difficulty, DifficultyTuning> = {
   easy: {
-    opponentSkill: -0.16,
-    humanSpeedBonus: 0.5,
-    humanControlBonus: 0.25,
-    tackleRateOnHuman: 1.8,
-    humanProtection: 0.65,
-    humanTackleBonus: 0.22,
-    passToHuman: 2.4,
-    keeperFactor: 0.78,
+    opponentSkill: -0.12,
+    humanSpeedBonus: 0.4,
+    humanControlBonus: 0.2,
+    tackleRateOnHuman: 2.1,
+    humanProtection: 0.72,
+    humanTackleBonus: 0.18,
+    passToHuman: 2.1,
+    keeperFactor: 0.85,
   },
   medium: {
     opponentSkill: -0.06,

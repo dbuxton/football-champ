@@ -313,8 +313,12 @@ export function thresholds(rank: number, trained = 0, difficulty: Difficulty = '
 export const EXPECTED = { smallest: 6.0, biggest: 7.9, most: 8.5 };
 /** How far above the expected form gets you a bigger club, and how far below a smaller one. */
 export const BAND = 0.75;
-/** Matches on easy give higher ratings than on hard, so clubs expect a bit more on easy. */
-export const EXPECT_FOR_DIFFICULTY: Record<Difficulty, number> = { easy: 0.5, medium: 0, hard: -0.4 };
+/**
+ * Matches on easy give higher ratings than on medium (about 0.4) and hard lower ones (about 1.1),
+ * so clubs expect a little more on easy and less on hard. Not quite all of the difference: easy
+ * still gives a small leg-up the ladder, and hard a small handicap.
+ */
+export const EXPECT_FOR_DIFFICULTY: Record<Difficulty, number> = { easy: 0.15, medium: 0, hard: -0.8 };
 /** How much more form clubs expect for each point your overall rating has gone up through training. */
 export const EXPECT_PER_OVERALL = 0.06;
 /** Overall points past which clubs stop raising the bar (so it never goes out of reach). */
